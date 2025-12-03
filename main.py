@@ -1,3 +1,4 @@
+import datetime
 import random
 from collections import deque
 from dataclasses import dataclass
@@ -262,5 +263,7 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=50):
 
 if __name__ == "__main__":
     # エントリーポイントでロギングを初期化
-    setup_logger()
+    setup_logger(
+        log_file=f"logs/training_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    )
     main()
