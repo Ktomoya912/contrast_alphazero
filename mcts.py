@@ -9,7 +9,12 @@ from contrast_game import ContrastGame
 
 class MCTS:
     def __init__(
-        self, network: torch.nn.Module, device, alpha=0.3, c_puct=1.0, epsilon=0.25
+        self,
+        network: torch.nn.Module,
+        device: torch.device,
+        alpha=0.3,
+        c_puct=1.0,
+        epsilon=0.25,
     ):
         self.network = network
         self.device = device

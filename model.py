@@ -2,6 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class ResidualBlock(nn.Module):
     """
@@ -143,6 +147,11 @@ def loss_function(
 
 # --- 動作確認 ---
 if __name__ == "__main__":
+    from logger import setup_logger
+
+    # エントリーポイントでロギングを初期化
+    setup_logger()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ContrastDualPolicyNet().to(device)
 
@@ -151,6 +160,6 @@ if __name__ == "__main__":
 
     m_out, t_out, v_out = model(dummy_input)
 
-    print(f"Move Output: {m_out.shape}")  # [4, 625]
-    print(f"Tile Output: {t_out.shape}")  # [4, 51]
-    print(f"Value Output: {v_out.shape}")  # [4, 1]
+    logger.info(f"Move Output: {m_out.shape}")  # [4, 625]
+    logger.info(f"Tile Output: {t_out.shape}")  # [4, 51]
+    logger.info(f"Value Output: {v_out.shape}")  # [4, 1]

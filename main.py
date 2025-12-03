@@ -7,11 +7,14 @@ import ray
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
-from mcts import MCTS
-from model import ContrastDualPolicyNet
 from tqdm import tqdm
 
 from contrast_game import ContrastGame
+from logger import get_logger, setup_logger
+from mcts import MCTS
+from model import ContrastDualPolicyNet
+
+logger = get_logger(__name__)
 
 # 定数定義
 NUM_CPUS = 4  # 環境に合わせて変更
@@ -20,6 +23,7 @@ BATCH_SIZE = 128
 BUFFER_SIZE = 40000
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 1e-4
+MAX_STEPS = 150  # ★追加: これ以上長引いたら強制終了
 
 
 @dataclass
@@ -103,6 +107,12 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
         # mcts_policy: {action_hash: prob}
         mcts_policy = mcts.search(game, num_mcts_simulations)
 
+        # 強制終了判定
+        if step >= MAX_STEPS:
+            done = True
+            winner = 0  # 引き分け扱い
+            break
+
         # 温度パラメータの制御
         # 序盤はランダム性を残し、中盤以降はGreedyに
         actions = list(mcts_policy.keys())
@@ -130,6 +140,9 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
         done, winner = game.step(action)
         step += 1
 
+        if step % 10 == 0:
+            logger.debug(f"Worker Progress: step {step}")
+
     # 報酬の割り当て (Winner視点)
     # game.winner: P1(1) or P2(2) or Draw(0)
     for sample in record:
@@ -148,7 +161,7 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=50):
 
     # デバイス設定 (TrainerはGPU推奨)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Training on {device}")
+    logger.info(f"Training on {device}")
 
     # モデルとオプティマイザ
     network = ContrastDualPolicyNet().to(device)
@@ -244,8 +257,10 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=50):
 
     # 終了処理
     torch.save(network.state_dict(), "contrast_model_final.pth")
-    print("Training finished. Model saved.")
+    logger.info("Training finished. Model saved.")
 
 
 if __name__ == "__main__":
+    # エントリーポイントでロギングを初期化
+    setup_logger()
     main()
