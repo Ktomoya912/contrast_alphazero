@@ -1,0 +1,15 @@
+[project]
+name = "contrast"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "flask>=3.1.2",
+    "matplotlib>=3.10.7",
+    "numpy>=2.3.4",
+    "pytest>=9.0.1",
+    "ray>=2.52.1",
+    "torch>=2.9.1",
+    "tqdm>=4.67.1",
+]

@@ -1,0 +1,335 @@
+import copy
+from collections import deque
+from typing import List, Tuple
+
+import numpy as np
+
+# --- Constants for fast access ---
+# Players
+P1 = 1
+P2 = 2
+OPPONENT = {P1: P2, P2: P1}
+
+# Tiles
+TILE_WHITE = 0
+TILE_BLACK = 1
+TILE_GRAY = 2
+NUM_TILES = 51  # 0(pass) + 25(black) + 25(gray) 配置する場所
+
+# Directions (Pre-computed)
+# 0: White (Orthogonal), 1: Black (Diagonal), 2: Gray (All)
+DIRS = [
+    np.array([(0, -1), (0, 1), (-1, 0), (1, 0)], dtype=np.int8),  # White
+    np.array([(-1, -1), (1, -1), (-1, 1), (1, 1)], dtype=np.int8),  # Black
+    np.array(  # Gray
+        [(0, -1), (0, 1), (-1, 0), (1, 0), (-1, -1), (1, -1), (-1, 1), (1, 1)],
+        dtype=np.int8,
+    ),
+]
+
+
+class ContrastGame:
+    ACTION_SIZE_TILE = NUM_TILES
+
+    def __init__(self, board_size: int = 5):
+        self.size = board_size
+
+        # 盤面状態 (int8 array)
+        # pieces: 0=Empty, 1=P1, 2=P2
+        # tiles: 0=White, 1=Black, 2=Gray
+        self.pieces = np.zeros((self.size, self.size), dtype=np.int8)
+        self.tiles = np.zeros((self.size, self.size), dtype=np.int8)
+
+        # 持ちタイル数 [Player-1][TileType] (Player index is 0 or 1 for array access)
+        # index 0: P1, index 1: P2
+        # index 0: Black, index 1: Gray
+        self.tile_counts = np.array([[3, 1], [3, 1]], dtype=np.int8)
+
+        self.current_player = P1
+        self.game_over = False
+        self.winner = 0
+        self.move_count = 0
+
+        # 履歴管理 (8手分)
+        # 高速化のため、dictではなくtuple(pieces, tiles, tile_counts)を保存
+        self.history = deque(maxlen=8)
+
+        self.setup_initial_position()
+
+    def setup_initial_position(self):
+        self.pieces.fill(0)
+        self.tiles.fill(0)
+        # P1 at y=4, P2 at y=0
+        self.pieces[4, :] = P1
+        self.pieces[0, :] = P2
+
+        self.tile_counts = np.array([[3, 1], [3, 1]], dtype=np.int8)
+        self.current_player = P1
+        self.move_count = 0
+        self.game_over = False
+        self.winner = 0
+
+        self.history.clear()
+        self._save_history()
+
+    def _save_history(self):
+        """現在の状態を履歴に追加 (コピーを作成)"""
+        self.history.appendleft(
+            (self.pieces.copy(), self.tiles.copy(), self.tile_counts.copy())
+        )
+
+    def copy(self):
+        """シミュレーション用の軽量コピー"""
+        new_game = ContrastGame(self.size)
+        new_game.pieces = self.pieces.copy()
+        new_game.tiles = self.tiles.copy()
+        new_game.tile_counts = self.tile_counts.copy()
+        new_game.current_player = self.current_player
+        new_game.game_over = self.game_over
+        new_game.winner = self.winner
+        new_game.move_count = self.move_count
+        # historyは重いので、必要ならコピーするが、
+        # MCTSのSimulation内だけで完結するなら直近の状態だけで良い場合も多い。
+        # ここでは正確性のため浅くコピーしておく
+        new_game.history = copy.copy(self.history)
+        return new_game
+
+    def get_valid_moves(self, x: int, y: int) -> List[Tuple[int, int]]:
+        """
+        Numpy最適化された移動先生成
+        """
+        # 自分の駒でなければ移動不可
+        if self.pieces[y, x] != self.current_player:
+            return []
+
+        moves = []
+        tile_type = self.tiles[y, x]
+        directions = DIRS[tile_type]
+
+        # Python loop is faster than numpy checking for small fixed steps
+        # But we can use direct array access
+        p_arr = self.pieces
+
+        for dx, dy in directions:
+            nx, ny = x + dx, y + dy
+
+            # Bounds check loop
+            while 0 <= nx < 5 and 0 <= ny < 5:
+                target = p_arr[ny, nx]
+
+                if target == 0:
+                    # Empty -> Valid Move
+                    moves.append((nx, ny))
+                    break  # Stop sliding
+                elif target == self.current_player:
+                    # Friend -> Jump over
+                    nx += dx
+                    ny += dy
+                    continue
+                else:
+                    # Enemy -> Blocked
+                    break
+
+        return moves
+
+    def get_all_legal_actions(self) -> List[int]:
+        """
+        全合法手のハッシュ(int)のリストを返す。
+        """
+        if self.game_over:
+            return []
+
+        legal_hashes = []  # intのリスト
+
+        # 1. 自分の駒の位置
+        py, px = np.where(self.pieces == self.current_player)
+
+        # 2. 持ちタイル情報
+        p_idx = self.current_player - 1
+        has_black = self.tile_counts[p_idx, 0] > 0
+        has_gray = self.tile_counts[p_idx, 1] > 0
+
+        # 3. 白タイルの場所 (配置候補)
+        # 事前に座標リスト化しておく
+        white_ty, white_tx = np.where(self.tiles == TILE_WHITE)
+        white_spots = list(zip(white_tx, white_ty))
+
+        # 定数のローカル変数化 (ループ内アクセス高速化)
+        SIZE_TILE = self.ACTION_SIZE_TILE
+        pieces = self.pieces  # numpy array access
+
+        for i in range(len(px)):
+            cx, cy = px[i], py[i]
+
+            # 移動先取得
+            moves = self.get_valid_moves(cx, cy)
+
+            for mx, my in moves:
+                # Base Move Index (0~624)
+                move_idx = (cy * 5 + cx) * 25 + (my * 5 + mx)
+
+                # Base Hash (move_idx * 51)
+                base_hash = move_idx * SIZE_TILE
+
+                # A. Move Only (Tile=0) -> base_hash + 0
+                legal_hashes.append(base_hash)
+
+                if not (has_black or has_gray):
+                    continue
+
+                # B. Move + Place Tile
+                for tx, ty in white_spots:
+                    # 移動先には置けない
+                    if tx == mx and ty == my:
+                        continue
+
+                    # 既存のコマチェック (移動元のコマは無視してOK)
+                    if pieces[ty, tx] != 0 and not (tx == cx and ty == cy):
+                        continue
+
+                    # Note: ここで append(int) を行うのは append(tuple) より高速です
+                    if has_black:
+                        # Tile Idx: 1 + (ty*5 + tx)
+                        t_idx = 1 + (ty * 5 + tx)
+                        legal_hashes.append(base_hash + t_idx)
+
+                    if has_gray:
+                        # Tile Idx: 26 + (ty*5 + tx)
+                        t_idx = 26 + (ty * 5 + tx)
+                        legal_hashes.append(base_hash + t_idx)
+
+        return legal_hashes
+
+    # --- Step & Update ---
+
+    def step(self, action_hash: int):
+        """
+        ハッシュ化されたアクションを受け取って状態を更新
+        """
+        # デコード処理 (高速な整数演算のみ)
+        move_idx = action_hash // self.ACTION_SIZE_TILE
+        tile_idx = action_hash % self.ACTION_SIZE_TILE
+
+        # Parse Move
+        from_idx = move_idx // 25
+        to_idx = move_idx % 25
+        fx, fy = from_idx % 5, from_idx // 5
+        tx, ty = to_idx % 5, to_idx // 5
+
+        # Parse Tile
+        place_tile = False
+        t_color = 0
+        t_x, t_y = 0, 0
+
+        if tile_idx > 0:
+            place_tile = True
+            if tile_idx <= 25:
+                # Black
+                t_color = TILE_BLACK
+                idx = tile_idx - 1
+            else:
+                # Gray
+                t_color = TILE_GRAY
+                idx = tile_idx - 26
+
+            t_x, t_y = idx % 5, idx // 5
+
+        # --- Execute Move (In-place) ---
+        self.pieces[ty, tx] = self.pieces[fy, fx]
+        self.pieces[fy, fx] = 0
+
+        if place_tile:
+            self.tiles[t_y, t_x] = t_color
+            p_idx = self.current_player - 1
+            c_idx = 0 if t_color == TILE_BLACK else 1
+            self.tile_counts[p_idx, c_idx] -= 1
+
+        self._check_win_fast()
+
+        if not self.game_over:
+            self.current_player = OPPONENT[self.current_player]
+            pass
+
+        self.move_count += 1
+        self._save_history()
+
+        return self.game_over, self.winner
+
+    def _check_win_fast(self):
+        # Numpy check is fast
+        if np.any(self.pieces[0, :] == P1):
+            self.game_over = True
+            self.winner = P1
+        elif np.any(self.pieces[4, :] == P2):
+            self.game_over = True
+            self.winner = P2
+
+    # --- Encoding ---
+
+    def encode_state(self) -> np.ndarray:
+        """
+        (90, 5, 5) の入力テンソルを生成
+        Numpyのブロードキャストを活用して高速化
+        """
+        # バッファ確保
+        input_tensor = np.zeros((90, 5, 5), dtype=np.float32)
+
+        # 履歴取得 (足りない分はパディング)
+        hist_len = len(self.history)
+
+        current_pid = self.current_player
+        opp_pid = OPPONENT[current_pid]
+
+        # Player Index for tile counts
+        my_idx = current_pid - 1
+        opp_idx = opp_pid - 1
+
+        for i in range(8):
+            if i < hist_len:
+                p_grid, t_grid, t_counts = self.history[i]
+            else:
+                # パディング: 最古の状態を繰り返す
+                p_grid, t_grid, t_counts = self.history[-1]
+
+            # Plane offsets
+            # 0-7: Own, 8-15: Opp, 16-23: Black, 24-31: Gray
+
+            input_tensor[i] = p_grid == current_pid
+            input_tensor[8 + i] = p_grid == opp_pid
+            input_tensor[16 + i] = t_grid == TILE_BLACK
+            input_tensor[24 + i] = t_grid == TILE_GRAY
+
+            # Tile Counts (Fill planes)
+            # 56-63: Own Black, 64-71: Own Gray
+            # 72-79: Opp Black, 80-87: Opp Gray
+
+            # Use fill for speed
+            input_tensor[56 + i].fill(t_counts[my_idx, 0] / 3.0)
+            input_tensor[64 + i].fill(t_counts[my_idx, 1] / 1.0)
+            input_tensor[72 + i].fill(t_counts[opp_idx, 0] / 3.0)
+            input_tensor[80 + i].fill(t_counts[opp_idx, 1] / 1.0)
+
+        # 88: Color (Self always 1)
+        input_tensor[88].fill(1.0)
+
+        # 89: Move Count
+        input_tensor[89].fill(self.move_count / 100.0)
+
+        return input_tensor
+
+
+def encode_action(move_idx: int, tile_idx: int) -> int:
+    """
+    (move_idx, tile_idx) -> unique hash (int)
+    Range: 0 ~ 31874 (625 * 51 - 1)
+    """
+    return move_idx * NUM_TILES + tile_idx
+
+
+def decode_action(action_hash: int) -> Tuple[int, int]:
+    """
+    unique hash (int) -> (move_idx, tile_idx)
+    """
+    move_idx = action_hash // NUM_TILES
+    tile_idx = action_hash % NUM_TILES
+    return move_idx, tile_idx
