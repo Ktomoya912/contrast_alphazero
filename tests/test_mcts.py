@@ -300,10 +300,12 @@ class TestSearch(unittest.TestCase):
 
         game = ContrastGame()
 
-        policy = mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         # ポリシーが辞書
         self.assertIsInstance(policy, dict)
+        # 評価値も辞書
+        self.assertIsInstance(values, dict)
 
     def test_search_policy_probabilities_sum_to_one(self):
         """探索で得られたポリシーの確率合計が1であることを確認"""
@@ -313,7 +315,7 @@ class TestSearch(unittest.TestCase):
 
         game = ContrastGame()
 
-        policy = mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         if policy:
             probs = list(policy.values())
@@ -328,7 +330,7 @@ class TestSearch(unittest.TestCase):
         game = ContrastGame()
 
         num_simulations = 20
-        policy = mcts.search(game, num_simulations=num_simulations)
+        policy, values = mcts.search(game, num_simulations=num_simulations)
 
         # ルートノードの訪問回数がシミュレーション回数と一致
         key = mcts.game_to_key(game)
@@ -345,11 +347,11 @@ class TestSearch(unittest.TestCase):
         game = ContrastGame()
 
         # ノイズありで2回実行
-        policy1 = mcts.search(game, num_simulations=10)
+        policy1, values1 = mcts.search(game, num_simulations=10)
 
         # MCTSをリセット
         mcts = MCTS(network, device)
-        policy2 = mcts.search(game, num_simulations=10)
+        policy2, values2 = mcts.search(game, num_simulations=10)
 
         # ノイズによりポリシーが異なる可能性がある
         # (ただし、決定的なネットワークでは同じ場合もある)
@@ -367,7 +369,7 @@ class TestSearch(unittest.TestCase):
         game.game_over = True
         game.winner = 1
 
-        policy = mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         # 終了状態では合法手がないため、空のポリシー
         self.assertEqual(len(policy), 0)
@@ -478,7 +480,7 @@ class TestPUCT(unittest.TestCase):
         game = ContrastGame()
 
         # 1回シミュレーション
-        mcts.search(game, num_simulations=1)
+        policy, values = mcts.search(game, num_simulations=1)
 
         key = mcts.game_to_key(game)
 
@@ -496,7 +498,7 @@ class TestPUCT(unittest.TestCase):
         game = ContrastGame()
 
         # 複数回シミュレーション
-        mcts.search(game, num_simulations=50)
+        policy, values = mcts.search(game, num_simulations=50)
 
         key = mcts.game_to_key(game)
 
@@ -519,7 +521,7 @@ class TestBackpropagation(unittest.TestCase):
         game = ContrastGame()
 
         # 探索
-        mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         key = mcts.game_to_key(game)
 
@@ -537,7 +539,7 @@ class TestBackpropagation(unittest.TestCase):
         game = ContrastGame()
 
         # 探索
-        mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         key = mcts.game_to_key(game)
 
@@ -560,7 +562,7 @@ class TestEdgeCases(unittest.TestCase):
 
         game = ContrastGame()
 
-        policy = mcts.search(game, num_simulations=0)
+        policy, values = mcts.search(game, num_simulations=0)
 
         # ポリシーが返される (一様分布)
         self.assertIsInstance(policy, dict)
@@ -573,7 +575,7 @@ class TestEdgeCases(unittest.TestCase):
 
         game = ContrastGame()
 
-        policy = mcts.search(game, num_simulations=1)
+        policy, values = mcts.search(game, num_simulations=1)
 
         # ポリシーが返される
         self.assertIsInstance(policy, dict)
@@ -589,7 +591,7 @@ class TestEdgeCases(unittest.TestCase):
         # 強制的に合法手をなくす (ゲーム終了)
         game.game_over = True
 
-        policy = mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         # 空のポリシーが返される
         self.assertEqual(len(policy), 0)
@@ -603,10 +605,10 @@ class TestEdgeCases(unittest.TestCase):
         game = ContrastGame()
 
         # 1回目の探索
-        policy1 = mcts.search(game, num_simulations=10)
+        policy1, values1 = mcts.search(game, num_simulations=10)
 
         # 2回目の探索 (同じゲーム状態)
-        policy2 = mcts.search(game, num_simulations=10)
+        policy2, values2 = mcts.search(game, num_simulations=10)
 
         # 両方ともポリシーが返される
         self.assertIsInstance(policy1, dict)
@@ -633,7 +635,7 @@ class TestEdgeCases(unittest.TestCase):
         initial_move_count = game.move_count
 
         # 探索
-        mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         # ゲーム状態が変更されていない
         self.assertTrue(np.array_equal(game.pieces, initial_pieces))
@@ -654,7 +656,7 @@ class TestMCTSWithRealNetwork(unittest.TestCase):
         game = ContrastGame()
 
         # 探索を実行
-        policy = mcts.search(game, num_simulations=5)
+        policy, values = mcts.search(game, num_simulations=5)
 
         # ポリシーが返される
         self.assertIsInstance(policy, dict)
@@ -669,7 +671,7 @@ class TestMCTSWithRealNetwork(unittest.TestCase):
         game = ContrastGame()
         legal_actions = set(game.get_all_legal_actions())
 
-        policy = mcts.search(game, num_simulations=5)
+        policy, values = mcts.search(game, num_simulations=5)
 
         # ポリシーのアクションが全て合法手
         for action in policy.keys():
@@ -691,7 +693,7 @@ class TestMCTSIntegration(unittest.TestCase):
         move_count = 0
 
         while not game.game_over and move_count < max_moves:
-            policy = mcts.search(game, num_simulations=5)
+            policy, values = mcts.search(game, num_simulations=5)
 
             if not policy:
                 break
@@ -714,11 +716,11 @@ class TestMCTSIntegration(unittest.TestCase):
 
         # 少ないシミュレーション
         mcts1 = MCTS(network, device)
-        policy1 = mcts1.search(game, num_simulations=1)
+        policy1, values1 = mcts1.search(game, num_simulations=1)
 
         # 多いシミュレーション
         mcts2 = MCTS(network, device)
-        policy2 = mcts2.search(game, num_simulations=50)
+        policy2, values2 = mcts2.search(game, num_simulations=50)
 
         # 両方ともポリシーが返される
         self.assertIsInstance(policy1, dict)
@@ -738,14 +740,14 @@ class TestMCTSIntegration(unittest.TestCase):
         game = ContrastGame()
 
         # 初期状態で探索
-        policy1 = mcts.search(game, num_simulations=5)
+        policy1, values1 = mcts.search(game, num_simulations=5)
         action = max(policy1, key=policy1.get)
 
         # アクションを実行
         game.step(action)
 
         # 新しい状態で探索
-        policy2 = mcts.search(game, num_simulations=5)
+        policy2, values2 = mcts.search(game, num_simulations=5)
 
         # 両方ともポリシーが返される
         self.assertIsInstance(policy1, dict)
@@ -767,7 +769,7 @@ class TestMCTSValuePropagation(unittest.TestCase):
         game = ContrastGame()
 
         # 探索を実行
-        policy = mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         key = mcts.game_to_key(game)
 
@@ -793,7 +795,7 @@ class TestMCTSValuePropagation(unittest.TestCase):
         game.pieces[0, :] = 0
 
         # 探索を実行
-        policy = mcts.search(game, num_simulations=10)
+        policy, values = mcts.search(game, num_simulations=10)
 
         # ポリシーが返される
         self.assertIsInstance(policy, dict)

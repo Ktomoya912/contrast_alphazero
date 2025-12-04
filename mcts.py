@@ -27,7 +27,7 @@ class MCTS:
         self.N = {}
         self.W = {}
 
-    def game_to_key(self, game):
+    def game_to_key(self, game: ContrastGame):
         """
         ContrastGameの状態を一意なハッシュ可能オブジェクト(タプル)に変換
         修正: move_countを含めることで、盤面が同一でも手数が違えば別状態として扱い、循環(無限再帰)を防ぐ
@@ -49,13 +49,13 @@ class MCTS:
 
         # 辞書アクセスに修正 (None対策)
         if root_key not in self.P:
-            return {}
+            return {}, {}
 
         valid_actions = list(self.P[root_key].keys())
 
         # 合法手がない場合
         if not valid_actions:
-            return {}
+            return {}, {}
 
         # ルートノードにディリクレノイズを付加
         dirichlet_noise = np.random.dirichlet([self.alpha] * len(valid_actions))
@@ -73,13 +73,22 @@ class MCTS:
         root_visits = sum(self.N[root_key].values())
         if root_visits == 0:
             # 万が一訪問が0回の場合(通常ありえないが)は一様分布を返す
-            return {a: 1.0 / len(valid_actions) for a in valid_actions}
+            return {a: 1.0 / len(valid_actions) for a in valid_actions}, {}
 
         mcts_policy = {a: self.N[root_key][a] / root_visits for a in valid_actions}
 
-        return mcts_policy
+        # 各アクションの評価値 (Q値) を計算
+        action_values = {}
+        for action in valid_actions:
+            n = self.N[root_key][action]
+            if n > 0:
+                action_values[action] = self.W[root_key][action] / n
+            else:
+                action_values[action] = 0.0
 
-    def _evaluate(self, game):
+        return mcts_policy, action_values
+
+    def _evaluate(self, game: ContrastGame):
         """
         再帰的な探索関数
         """
@@ -138,7 +147,7 @@ class MCTS:
 
         return v
 
-    def _expand(self, game):
+    def _expand(self, game: ContrastGame):
         """
         ニューラルネットで推論し、Prior ProbabilityとValueを計算して保存する
         """

@@ -1,4 +1,6 @@
 import datetime
+import logging
+import os
 import random
 from collections import deque
 from dataclasses import dataclass
@@ -18,7 +20,7 @@ from model import ContrastDualPolicyNet
 logger = get_logger(__name__)
 
 # 定数定義
-NUM_CPUS = 4  # 環境に合わせて変更
+NUM_CPUS = os.cpu_count()
 NUM_GPUS = 1 if torch.cuda.is_available() else 0
 BATCH_SIZE = 128
 BUFFER_SIZE = 40000
@@ -90,6 +92,7 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     """
     Ray Worker: Self-playを実行してデータを収集
     """
+    torch.set_num_threads(1)
     # モデルの初期化 (CPU)
     model = ContrastDualPolicyNet()
     model.load_state_dict(weights)
@@ -106,7 +109,7 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     while not done:
         # MCTS実行
         # mcts_policy: {action_hash: prob}
-        mcts_policy = mcts.search(game, num_mcts_simulations)
+        mcts_policy, action_values = mcts.search(game, num_mcts_simulations)
 
         # 強制終了判定
         if step >= MAX_STEPS:
@@ -158,7 +161,12 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
 
 def main(n_parallel_selfplay=10, num_mcts_simulations=50):
     # Ray初期化
-    ray.init(ignore_reinit_error=True)
+    ray.init(
+        ignore_reinit_error=True,
+        include_dashboard=False,
+        configure_logging=True,
+        logging_level=logging.ERROR,  # INFOログを抑制してスッキリさせる
+    )
 
     # デバイス設定 (TrainerはGPU推奨)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
