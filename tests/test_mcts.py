@@ -15,7 +15,6 @@ MCTS (Monte Carlo Tree Search) の網羅的なテストコード
 """
 
 import unittest
-from unittest.mock import MagicMock, patch
 
 import numpy as np
 import torch
@@ -741,7 +740,7 @@ class TestMCTSIntegration(unittest.TestCase):
 
         # 初期状態で探索
         policy1, values1 = mcts.search(game, num_simulations=5)
-        action = max(policy1, key=policy1.get)
+        action = max(policy1, key=lambda k: policy1[k])
 
         # アクションを実行
         game.step(action)

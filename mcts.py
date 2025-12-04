@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from contrast_game import ContrastGame
+from contrast_game import P2, ContrastGame, flip_action
 
 
 class MCTS:
@@ -147,12 +147,13 @@ class MCTS:
 
         return v
 
-    def _expand(self, game: ContrastGame):
+    def _expand(self, game):
         """
         ニューラルネットで推論し、Prior ProbabilityとValueを計算して保存する
         """
         key = self.game_to_key(game)
 
+        # encode_state内でP2なら自動的に反転される
         input_tensor = (
             torch.from_numpy(game.encode_state()).unsqueeze(0).to(self.device)
         )
@@ -161,9 +162,9 @@ class MCTS:
         with torch.no_grad():
             move_logits, tile_logits, value = self.network(input_tensor)
 
-        value = value.item()  # Scalar
+        value = value.item()
 
-        legal_actions = game.get_all_legal_actions()  # List[int]
+        legal_actions = game.get_all_legal_actions()
 
         if not legal_actions:
             self.P[key] = {}
@@ -171,20 +172,27 @@ class MCTS:
             self.W[key] = {}
             return value
 
-        m_logits = move_logits[0].cpu().numpy()  # shape (625,)
-        t_logits = tile_logits[0].cpu().numpy()  # shape (51,)
+        m_logits = move_logits[0].cpu().numpy()
+        t_logits = tile_logits[0].cpu().numpy()
 
         temp_logits = []
         action_mapping = []
 
+        # P2の場合は、実アクション(legal_actions)を「反転」させてから
+        # ネットワークの出力(反転済みの盤面に対する推論)を参照する
+        should_flip = game.current_player == P2
+
         for action_hash in legal_actions:
-            # デコード (51 = ACTION_SIZE_TILE)
-            move_idx = action_hash // 51
-            tile_idx = action_hash % 51
+            # ネットワークに問い合わせるためのハッシュ
+            query_hash = flip_action(action_hash) if should_flip else action_hash
+
+            # デコード (51 = ContrastGame.ACTION_SIZE_TILE)
+            move_idx = query_hash // 51
+            tile_idx = query_hash % 51
 
             combined_logit = m_logits[move_idx] + t_logits[tile_idx]
             temp_logits.append(combined_logit)
-            action_mapping.append(action_hash)
+            action_mapping.append(action_hash)  # 辞書には実ハッシュを保存
 
         temp_logits = np.array(temp_logits)
         probs = F.softmax(torch.tensor(temp_logits), dim=0).numpy()

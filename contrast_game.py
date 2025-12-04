@@ -246,9 +246,7 @@ class ContrastGame:
 
         self._check_win_fast()
 
-        if not self.game_over:
-            self.current_player = OPPONENT[self.current_player]
-            pass
+        self.current_player = OPPONENT[self.current_player]
 
         self.move_count += 1
         self._save_history()
@@ -269,9 +267,8 @@ class ContrastGame:
     def encode_state(self) -> np.ndarray:
         """
         (90, 5, 5) の入力テンソルを生成
-        Numpyのブロードキャストを活用して高速化
+        P2の場合は盤面を180度回転させ、P1視点に正規化する
         """
-        # バッファ確保
         input_tensor = np.zeros((90, 5, 5), dtype=np.float32)
 
         # 履歴取得 (足りない分はパディング)
@@ -284,32 +281,35 @@ class ContrastGame:
         my_idx = current_pid - 1
         opp_idx = opp_pid - 1
 
+        # 【追加】P2なら盤面を回転させるフラグ
+        should_flip = current_pid == P2
+
         for i in range(8):
             if i < hist_len:
                 p_grid, t_grid, t_counts = self.history[i]
             else:
-                # パディング: 最古の状態を繰り返す
                 p_grid, t_grid, t_counts = self.history[-1]
 
-            # Plane offsets
-            # 0-7: Own, 8-15: Opp, 16-23: Black, 24-31: Gray
+            # 【追加】P2視点なら盤面を180度回転
+            if should_flip:
+                p_grid = np.rot90(p_grid, 2)
+                t_grid = np.rot90(t_grid, 2)
 
+            # Plane offsets
             input_tensor[i] = p_grid == current_pid
             input_tensor[8 + i] = p_grid == opp_pid
             input_tensor[16 + i] = t_grid == TILE_BLACK
             input_tensor[24 + i] = t_grid == TILE_GRAY
 
-            # Tile Counts (Fill planes)
-            # 56-63: Own Black, 64-71: Own Gray
-            # 72-79: Opp Black, 80-87: Opp Gray
-
-            # Use fill for speed
+            # Tile Counts (値は回転不要、埋めるだけ)
             input_tensor[56 + i].fill(t_counts[my_idx, 0] / 3.0)
             input_tensor[64 + i].fill(t_counts[my_idx, 1] / 1.0)
             input_tensor[72 + i].fill(t_counts[opp_idx, 0] / 3.0)
             input_tensor[80 + i].fill(t_counts[opp_idx, 1] / 1.0)
 
-        # 88: Color (Self always 1)
+        # 88: Color (P2の場合は回転しているので、常にP1視点として扱えるため常に1でも良いが、
+        # AlphaZeroの慣例的には手番プレーヤーIDを入れることもある。
+        # ここでは元の実装通り「自分=1」とする)
         input_tensor[88].fill(1.0)
 
         # 89: Move Count
@@ -333,3 +333,36 @@ def decode_action(action_hash: int) -> Tuple[int, int]:
     move_idx = action_hash // NUM_TILES
     tile_idx = action_hash % NUM_TILES
     return move_idx, tile_idx
+
+
+def flip_location(idx: int) -> int:
+    """盤面インデックス(0-24)を180度回転させる: i -> 24-i"""
+    return 24 - idx
+
+
+def flip_action(action_hash: int) -> int:
+    """アクションハッシュを180度回転した視点に変換する"""
+    move_idx = action_hash // NUM_TILES
+    tile_idx = action_hash % NUM_TILES
+
+    # Moveの変換
+    from_idx = move_idx // 25
+    to_idx = move_idx % 25
+
+    new_from = flip_location(from_idx)
+    new_to = flip_location(to_idx)
+    new_move_idx = new_from * 25 + new_to
+
+    # Tileの変換
+    new_tile_idx = 0
+    if tile_idx > 0:
+        if tile_idx <= 25:  # Black
+            pos = tile_idx - 1
+            new_pos = flip_location(pos)
+            new_tile_idx = new_pos + 1
+        else:  # Gray
+            pos = tile_idx - 26
+            new_pos = flip_location(pos)
+            new_tile_idx = new_pos + 26
+
+    return new_move_idx * NUM_TILES + new_tile_idx
