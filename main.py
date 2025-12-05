@@ -4,6 +4,7 @@ import os
 import random
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import ray
@@ -23,7 +24,7 @@ from model import ContrastDualPolicyNet
 logger = get_logger(__name__)
 
 # 定数定義
-NUM_CPUS = os.cpu_count()
+NUM_CPUS = os.cpu_count() or 2
 NUM_GPUS = 1 if torch.cuda.is_available() else 0
 BATCH_SIZE = 128
 BUFFER_SIZE = 40000
@@ -172,79 +173,58 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     return record
 
 
-def main(n_parallel_selfplay=10, num_mcts_simulations=200):
-    # Ray初期化
+# ★変更: 並列数を「2」に変更推奨 (4コアマシンの場合: 2 workers + 1 evaluator + 1 trainer)
+def main(n_parallel_selfplay=2, num_mcts_simulations=50):
     ray.init(
         ignore_reinit_error=True,
         include_dashboard=False,
         configure_logging=True,
-        logging_level=logging.ERROR,  # INFOログを抑制してスッキリさせる
+        logging_level=logging.ERROR,
     )
-
-    # デバイス設定 (TrainerはGPU推奨)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Training on {device}")
-    elo_evaluator = EloEvaluator(device=device, baseline_elo=1000)
-    # モデルとオプティマイザ
+
     network = ContrastDualPolicyNet().to(device)
     optimizer = optim.Adam(
         network.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
     )
-
     # 学習率スケジューラ (2000ステップごとに学習率を半分に)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2000, gamma=0.5)
 
-    # 初期ウェイトをRay Object Storeへ
-    # CPUに落としてから送る
+    # ★変更: 評価用ActorをCPUで起動
+    elo_evaluator = EloEvaluator.remote(device_str="cpu", baseline_elo=1000)
+    evaluation_future = None  # 評価タスクのハンドル
+
     current_weights_ref = ray.put(network.to("cpu").state_dict())
-    network.to(device)  # Trainer用にGPUに戻す
+    network.to(device)
 
     replay = ReplayBuffer(buffer_size=BUFFER_SIZE)
-
-    # Workerの起動
     work_in_progresses = [
         selfplay.remote(current_weights_ref, num_mcts_simulations)
         for _ in range(n_parallel_selfplay)
     ]
 
-    # トレーニングループ
     total_steps = 0
     max_steps = 10000
-
-    # プログレスバー
-    pbar = tqdm(total=max_steps, desc="Training Steps")
+    pbar = tqdm(total=max_steps, desc="Training")
 
     while total_steps < max_steps:
-        # 1. データ収集フェーズ (非同期実行の待ち受け)
-        # 一定数(例: 10ゲーム分)集まるまで待つ、あるいは完了した順に処理
-
         finished, work_in_progresses = ray.wait(work_in_progresses, num_returns=1)
-
-        # 完了したタスクから結果を取得
-        game_records = ray.get(finished[0])
-        replay.add_record(game_records)
-
-        # Workerを再起動 (最新のウェイトを渡す)
+        replay.add_record(ray.get(finished[0]))
         work_in_progresses.append(
             selfplay.remote(current_weights_ref, num_mcts_simulations)
         )
 
-        # 2. 学習フェーズ
-        # バッファがある程度たまったら学習開始
         if len(replay) > BATCH_SIZE:
-            # データ取得 (GPU転送込み)
             states, m_targets, t_targets, v_targets = replay.get_minibatch(BATCH_SIZE)
             states = states.to(device)
             m_targets = m_targets.to(device)
             t_targets = t_targets.to(device)
             v_targets = v_targets.to(device)
-
             # 勾配リセット
             optimizer.zero_grad()
-
             # 推論
             m_logits, t_logits, v_pred = network(states)
-
             # 損失計算
             # Value Loss: MSE
             value_loss = F.mse_loss(v_pred, v_targets)
@@ -256,54 +236,64 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=200):
 
             m_log_probs = F.log_softmax(m_logits, dim=1)
             t_log_probs = F.log_softmax(t_logits, dim=1)
-
             move_loss = -torch.mean(torch.sum(m_targets * m_log_probs, dim=1))
             tile_loss = -torch.mean(torch.sum(t_targets * t_log_probs, dim=1))
 
             loss = value_loss + move_loss + tile_loss
-
             # バックプロパゲーション
             loss.backward()
             optimizer.step()
             scheduler.step()
-
             # 3. ウェイトの更新
             # 一定ステップごとにRay上のウェイトを更新
             if total_steps % 50 == 0:
                 current_weights_ref = ray.put(network.to("cpu").state_dict())
                 network.to(device)
-
-                # ログ出力（より詳細に）
                 current_lr = scheduler.get_last_lr()[0]
                 tqdm.write(
                     f"Step {total_steps}: Loss={loss.item():.4f} "
                     f"(V={value_loss.item():.4f}, M={move_loss.item():.4f}, T={tile_loss.item():.4f}) "
                     f"LR={current_lr:.6f} Buffer={len(replay)}"
                 )
-            if total_steps > 0 and total_steps % EVAL_INTERVAL == 0:
-                tqdm.write(f"\n--- Evaluating at step {total_steps} ---")
-                # 現在のウェイトを使って評価（メインスレッドで実行）
-                elo, win_rate = elo_evaluator.evaluate(
-                    network.state_dict(),
-                    num_games=EVAL_NUM_GAMES,
-                    mcts_simulations=EVAL_MCTS_SIMS,
+
+            # ★変更: 非同期評価ロジック
+            # 前回の評価が終わっているかチェック
+            if evaluation_future is not None:
+                # timeout=0で即座に確認（終わってなければ空リストが返る）
+                ready, _ = ray.wait([evaluation_future], timeout=0)
+                if ready:
+                    try:
+                        elo, win_rate = ray.get(evaluation_future)
+                        tqdm.write(
+                            f"Evaluation Result: ELO={elo:.1f}, WinRate={win_rate:.1f}%"
+                        )
+                    except Exception as e:
+                        logger.error(f"Evaluation Error: {e}")
+                    evaluation_future = None  # タスク完了、リセット
+
+            # 新しい評価を投げる (インターバル経過 かつ 前の評価が終わっている場合)
+            if (
+                total_steps > 0
+                and total_steps % EVAL_INTERVAL == 0
+                and evaluation_future is None
+            ):
+                tqdm.write(f"Step {total_steps}: Starting async evaluation...")
+                evaluation_future = elo_evaluator.evaluate.remote(
+                    current_weights_ref, total_steps, EVAL_NUM_GAMES, EVAL_MCTS_SIMS
                 )
-                # モデル保存（評価時点のバックアップ）
-                torch.save(
-                    network.state_dict(),
-                    f"models/model_step_{total_steps}_elo_{int(elo)}.pth",
-                )
+
             total_steps += 1
             pbar.update(1)
 
-    # 終了処理
     torch.save(network.state_dict(), "contrast_model_final.pth")
-    logger.info("Training finished. Model saved.")
+    logger.info("Training finished.")
 
 
 if __name__ == "__main__":
     # エントリーポイントでロギングを初期化
+    Path("logs").mkdir(exist_ok=True)
+    Path("models").mkdir(exist_ok=True)
     setup_logger(
         log_file=f"logs/training_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
     )
-    main()
+    main(n_parallel_selfplay=NUM_CPUS - 2)
