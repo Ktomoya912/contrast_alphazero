@@ -88,7 +88,7 @@ class MCTS:
 
         return mcts_policy, action_values
 
-    def _evaluate(self, game: ContrastGame):
+    def _evaluate(self, game: ContrastGame) -> float:
         """
         再帰的な探索関数
         """
@@ -147,7 +147,7 @@ class MCTS:
 
         return v
 
-    def _expand(self, game):
+    def _expand(self, game: ContrastGame) -> float:
         """
         ニューラルネットで推論し、Prior ProbabilityとValueを計算して保存する
         """

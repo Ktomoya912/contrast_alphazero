@@ -26,7 +26,7 @@ BATCH_SIZE = 128
 BUFFER_SIZE = 40000
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 1e-4
-MAX_STEPS = 150  # ★追加: これ以上長引いたら強制終了
+MAX_STEPS = 50  # ★変更: 150→50 無意味な往復を防ぐ
 
 
 @dataclass
@@ -122,12 +122,11 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
         actions = list(mcts_policy.keys())
         probs = list(mcts_policy.values())
 
-        if step < 10:
-            # 温度 = 1 (確率に従って選択)
+        if step < 15:
+            # 温度 = 1 (確率に従って選択) - 序盤は多様な手を試す
             action = np.random.choice(actions, p=probs)
         else:
-            # 温度 = 0 (最大確率の手を選択)
-            # dictの値が最大のものを選ぶ
+            # 温度 = 0 (最大確率の手を選択) - 中盤以降は最善手
             action = max(mcts_policy, key=mcts_policy.get)
 
         # 記録 (現在の状態、MCTSの分布、手番)
@@ -144,14 +143,21 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
         done, winner = game.step(action)
         step += 1
 
-        if step % 10 == 0:
-            logger.debug(f"Worker Progress: step {step}")
+    # ゲーム結果のログ出力（デバッグ用）
+    if winner == 0:
+        result = "Draw"
+    elif winner == 1:
+        result = "P1 Win"
+    else:
+        result = "P2 Win"
+    logger.debug(f"Game finished: {result}, Steps: {step}")
 
     # 報酬の割り当て (Winner視点)
     # game.winner: P1(1) or P2(2) or Draw(0)
     for sample in record:
         if winner == 0:
-            sample.reward = 0.0
+            # 引き分けにはペナルティを与える（決着をつけることを促す）
+            sample.reward = -0.3
         else:
             # 自分の手番で勝ったなら+1, 負けたなら-1
             sample.reward = 1.0 if sample.player == winner else -1.0
@@ -159,7 +165,7 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     return record
 
 
-def main(n_parallel_selfplay=10, num_mcts_simulations=50):
+def main(n_parallel_selfplay=10, num_mcts_simulations=200):
     # Ray初期化
     ray.init(
         ignore_reinit_error=True,
@@ -177,6 +183,9 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=50):
     optimizer = optim.Adam(
         network.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
     )
+
+    # 学習率スケジューラ (2000ステップごとに学習率を半分に)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2000, gamma=0.5)
 
     # 初期ウェイトをRay Object Storeへ
     # CPUに落としてから送る
@@ -249,6 +258,7 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=50):
             # バックプロパゲーション
             loss.backward()
             optimizer.step()
+            scheduler.step()
 
             # 3. ウェイトの更新
             # 一定ステップごとにRay上のウェイトを更新
@@ -256,9 +266,12 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=50):
                 current_weights_ref = ray.put(network.to("cpu").state_dict())
                 network.to(device)
 
-                # ログ出力
+                # ログ出力（より詳細に）
+                current_lr = scheduler.get_last_lr()[0]
                 tqdm.write(
-                    f"Step {total_steps}: Loss={loss.item():.4f} (V={value_loss.item():.4f}, M={move_loss.item():.4f}, T={tile_loss.item():.4f})"
+                    f"Step {total_steps}: Loss={loss.item():.4f} "
+                    f"(V={value_loss.item():.4f}, M={move_loss.item():.4f}, T={tile_loss.item():.4f}) "
+                    f"LR={current_lr:.6f} Buffer={len(replay)}"
                 )
 
             total_steps += 1
@@ -272,6 +285,6 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=50):
 if __name__ == "__main__":
     # エントリーポイントでロギングを初期化
     setup_logger(
-        log_file=f"logs/training_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        log_file=f"logs/training_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
     )
     main()
