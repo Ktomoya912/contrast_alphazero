@@ -27,13 +27,13 @@ logger = get_logger(__name__)
 NUM_CPUS = os.cpu_count() or 2
 NUM_GPUS = 1 if torch.cuda.is_available() else 0
 BATCH_SIZE = 128
-BUFFER_SIZE = 40000
-LEARNING_RATE = 0.001
+BUFFER_SIZE = 0.2
 WEIGHT_DECAY = 1e-4
 MAX_STEPS = 50  # ★変更: 150→50 無意味な往復を防ぐ
+MAX_EPOCH = 25_000
 # ★追加: 評価設定
-EVAL_INTERVAL = 100  # 何ステップごとに評価するか
-EVAL_NUM_GAMES = 10  # 評価時の対戦数
+EVAL_INTERVAL = 1000  # 何ステップごとに評価するか
+EVAL_NUM_GAMES = 500  # 評価時の対戦数
 EVAL_MCTS_SIMS = 50  # 評価時のシミュレーション回数
 
 
@@ -205,10 +205,9 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
     ]
 
     total_steps = 0
-    max_steps = 10000
-    pbar = tqdm(total=max_steps, desc="Training")
+    pbar = tqdm(total=MAX_EPOCH, desc="Training")
 
-    while total_steps < max_steps:
+    while total_steps < MAX_EPOCH:
         finished, work_in_progresses = ray.wait(work_in_progresses, num_returns=1)
         replay.add_record(ray.get(finished[0]))
         work_in_progresses.append(
