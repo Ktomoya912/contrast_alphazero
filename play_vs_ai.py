@@ -289,6 +289,7 @@ class HumanVsAI:
             if self.game.current_player == self.human_player:
                 # 人間のターン
                 action = self.get_random_action()
+                # action = self.get_human_action()
             else:
                 # AIのターン
                 action = self.get_ai_action()

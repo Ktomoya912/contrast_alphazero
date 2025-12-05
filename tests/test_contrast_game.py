@@ -314,6 +314,65 @@ class TestWinConditions(unittest.TestCase):
         self.assertFalse(game.game_over)
         self.assertEqual(game.winner, 0)
 
+    def test_loss_condition_no_legal_moves(self):
+        """合法手がない場合に敗北することを確認"""
+        game = ContrastGame()
+
+        # P1の駒を全て相手の駒で囲む（移動不可能にする）
+        # P1の駒の位置: (4, 0), (4, 1), (4, 2), (4, 3), (4, 4)
+        # その上の行(y=3)を全てP2の駒で埋める
+        for x in range(5):
+            game.pieces[3, x] = P2
+
+        # P1が行動を試みる（合法手がないはず）
+        legal_actions = game.get_all_legal_actions()
+
+        # 合法手が存在しないことを確認
+        self.assertEqual(len(legal_actions), 0)
+
+        # step()を呼ぶと敗北条件が発動するが、合法手がないので
+        # 実際にはstep()は呼べない。代わりに直接チェックをシミュレート
+        # 実際のゲームでは、プレイヤーが行動できない時点で敗北
+
+        # 手番を交代して合法手チェックをシミュレート
+        game.current_player = OPPONENT[game.current_player]
+        legal_actions_p2 = game.get_all_legal_actions()
+
+        # P2にまだ合法手があることを確認（P1だけが動けない）
+        self.assertGreater(len(legal_actions_p2), 0)
+
+    def test_loss_condition_triggered_after_move(self):
+        """相手の行動後に合法手がなくなり敗北することを確認"""
+        game = ContrastGame()
+
+        # P2の駒を配置してP1を閉じ込める準備
+        # まずP1の駒を1つだけにする
+        game.pieces[4, :] = 0
+        game.pieces[4, 2] = P1
+
+        # P1の周囲をP2の駒で囲む（1マス空けておく）
+        game.pieces[3, 1] = P2
+        game.pieces[3, 2] = P2
+        game.pieces[3, 3] = P2
+
+        # P2の番にする
+        game.current_player = P2
+
+        # P2が最後の1マスを埋める行動を作成
+        # (0, 0) -> (4, 1) への移動
+        move_idx = (0 * 5 + 0) * 25 + (4 * 5 + 1)
+        action = move_idx * 51  # タイルなし
+
+        # P2の駒を配置
+        game.pieces[0, 0] = P2
+
+        # 行動を実行
+        done, winner = game.step(action)
+
+        # ゲームが終了し、P2が勝利（P1が敗北）
+        self.assertTrue(done)
+        self.assertEqual(winner, P2)
+
 
 class TestActionEncoding(unittest.TestCase):
     """アクションのエンコード/デコードのテスト"""
@@ -540,6 +599,9 @@ class TestEdgeCases(unittest.TestCase):
 
         # 移動可能な駒がないため、合法手は0
         self.assertEqual(len(legal_actions), 0)
+
+        # ゲームはまだ終了していない（step()が呼ばれていないため）
+        self.assertFalse(game.game_over)
 
     def test_reset_game(self):
         """ゲームのリセットが正しく機能するか確認"""

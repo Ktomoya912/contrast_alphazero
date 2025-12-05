@@ -246,7 +246,16 @@ class ContrastGame:
 
         self._check_win_fast()
 
+        # 手番を交代する前に、次のプレイヤーの合法手をチェック
         self.current_player = OPPONENT[self.current_player]
+
+        # 敗北条件チェック: 次のプレイヤーに合法手がない場合
+        if not self.game_over:
+            legal_actions = self.get_all_legal_actions()
+            if len(legal_actions) == 0:
+                # 合法手がないプレイヤーが敗北
+                self.game_over = True
+                self.winner = OPPONENT[self.current_player]
 
         self.move_count += 1
         self._save_history()

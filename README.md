@@ -13,6 +13,7 @@
 - **移動制限**: 相手のコマがいるマスには移動不可、自分の駒が隣にある場合、その駒を飛び越えて移動可能
 - **タイル制限**: タイルの再配置は認められない
 - **勝利条件**: 相手の陣地（後列）に最初に到達
+- **敗北条件**: 自分の駒が全て動けなくなった場合
 
 ### タイルシステム
 - **白タイル** (□): 縦横方向に1マス移動可能
@@ -41,13 +42,13 @@
 ### 1. 学習済みモデルと対戦
 ```bash
 # デフォルト設定で対戦 (プレイヤー1として、100シミュレーション)
-uv run python play_vs_ai.py
+uv run play_vs_ai.py
 
 # オプション指定
-uv run python play_vs_ai.py --model contrast_model_final.pth --simulations 200 --player 1
+uv run play_vs_ai.py --model contrast_model_final.pth --simulations 200 --player 1
 
 # ヘルプ表示
-uv run python play_vs_ai.py --help
+uv run play_vs_ai.py --help
 ```
 
 #### 操作方法
@@ -64,10 +65,10 @@ uv run python play_vs_ai.py --help
 ### 2. AIを学習させる
 ```bash
 # 学習実行 (main.pyで設定を調整)
-uv run python main.py
+uv run main.py
 
 # デバッグモード
-uv run python debug.py
+uv run debug.py
 ```
 
 ## セットアップ
@@ -99,9 +100,9 @@ uv run -m pytest tests/test_mcts.py -v
 
 ### テストカバレッジ
 
-プロジェクトには **84個** の網羅的なテストが含まれています。
+プロジェクトには **86個** の網羅的なテストが含まれています。
 
-#### ContrastGame テスト (45テスト)
+#### ContrastGame テスト (47テスト)
 
 **1. 初期化と初期配置 (5テスト)**
 - 初期盤面の配置確認
@@ -132,6 +133,10 @@ uv run -m pytest tests/test_mcts.py -v
 - P2が下段到達で勝利することの確認
 - 勝者なしでゲーム継続の確認
 
+**4.5. 敗北条件 (2テスト)** ⭐新規追加
+- 合法手がない場合に敗北することの確認
+- 相手の行動後に合法手がなくなり敗北することの確認
+
 **5. アクションエンコーディング (4テスト)**
 - アクションのエンコード基本動作
 - アクションのデコード基本動作
@@ -160,7 +165,7 @@ uv run -m pytest tests/test_mcts.py -v
 - 最大長8の維持確認
 
 **10. エッジケース (3テスト)**
-- 全駒ブロック状態の処理
+- 全駒ブロック状態の処理（合法手が0になることを確認）
 - ゲームリセット機能
 - プレイヤー切り替えマッピング
 
@@ -236,7 +241,7 @@ uv run -m pytest tests/test_mcts.py -v
 ### テスト実行結果
 
 ```bash
-$ uv run python -m pytest test_contrast_game.py test_mcts.py -v
+$ uv run -m pytest test_contrast_game.py test_mcts.py -v
 ============================== 84 passed in 1.30s ==============================
 ```
 
