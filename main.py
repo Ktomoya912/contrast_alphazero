@@ -13,6 +13,9 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from contrast_game import ContrastGame
+
+# ★追加: 評価モジュールのインポート
+from elo_evaluator import EloEvaluator
 from logger import get_logger, setup_logger
 from mcts import MCTS
 from model import ContrastDualPolicyNet
@@ -27,6 +30,10 @@ BUFFER_SIZE = 40000
 LEARNING_RATE = 0.001
 WEIGHT_DECAY = 1e-4
 MAX_STEPS = 50  # ★変更: 150→50 無意味な往復を防ぐ
+# ★追加: 評価設定
+EVAL_INTERVAL = 100  # 何ステップごとに評価するか
+EVAL_NUM_GAMES = 10  # 評価時の対戦数
+EVAL_MCTS_SIMS = 50  # 評価時のシミュレーション回数
 
 
 @dataclass
@@ -177,7 +184,7 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=200):
     # デバイス設定 (TrainerはGPU推奨)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Training on {device}")
-
+    elo_evaluator = EloEvaluator(device=device, baseline_elo=1000)
     # モデルとオプティマイザ
     network = ContrastDualPolicyNet().to(device)
     optimizer = optim.Adam(
@@ -273,7 +280,19 @@ def main(n_parallel_selfplay=10, num_mcts_simulations=200):
                     f"(V={value_loss.item():.4f}, M={move_loss.item():.4f}, T={tile_loss.item():.4f}) "
                     f"LR={current_lr:.6f} Buffer={len(replay)}"
                 )
-
+            if total_steps > 0 and total_steps % EVAL_INTERVAL == 0:
+                tqdm.write(f"\n--- Evaluating at step {total_steps} ---")
+                # 現在のウェイトを使って評価（メインスレッドで実行）
+                elo, win_rate = elo_evaluator.evaluate(
+                    network.state_dict(),
+                    num_games=EVAL_NUM_GAMES,
+                    mcts_simulations=EVAL_MCTS_SIMS,
+                )
+                # モデル保存（評価時点のバックアップ）
+                torch.save(
+                    network.state_dict(),
+                    f"models/model_step_{total_steps}_elo_{int(elo)}.pth",
+                )
             total_steps += 1
             pbar.update(1)
 
