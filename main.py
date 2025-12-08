@@ -46,7 +46,7 @@ EVAL_MCTS_SIMS = evaluation_config.EVAL_MCTS_SIMS
 @dataclass
 class Sample:
     state: np.ndarray  # (90, 5, 5)
-    mcts_policy: dict  # {action_hash: prob}
+    mcts_policy: dict[int, float]  # {action_hash: prob}
     player: int  # 1 or 2
     reward: float = 0.0  # 後で埋める
 
@@ -65,7 +65,9 @@ class ReplayBuffer:
         """
         バッチを取り出し、PyTorchのTensor形式（Dual Head用ターゲット）に変換して返す
         """
-        batch = random.sample(self.buffer, min(len(self.buffer), batch_size))
+        batch: list[Sample] = random.sample(
+            self.buffer, min(len(self.buffer), batch_size)
+        )
 
         states = []
         move_targets = []

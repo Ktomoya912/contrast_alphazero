@@ -73,7 +73,7 @@ class TrainingConfig:
     NUM_PARALLEL_SELFPLAY: int = max(1, NUM_CPUS - 2)
 
     # バッチとバッファ
-    BATCH_SIZE: int = 4096
+    BATCH_SIZE: int = 1024
     BUFFER_SIZE: int = 20_000
 
     # 最適化
@@ -84,7 +84,7 @@ class TrainingConfig:
 
     # 学習ステップ
     MAX_STEPS: int = 150  # 1ゲームあたりの最大手数（引き分け防止）
-    MAX_EPOCH: int = MAX_STEPS * 10_000  # 総学習ステップ数
+    MAX_EPOCH: int = 50 * 10_000  # 総学習ステップ数
 
     # ログとチェックポイント
     LOG_INTERVAL: int = 50  # ログ出力の間隔

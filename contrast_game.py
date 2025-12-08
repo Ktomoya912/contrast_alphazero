@@ -93,7 +93,7 @@ class ContrastGame:
 
         # 盤面繰り返し判定用（50手以降の盤面ハッシュを記録）
         self.position_history: dict = {}  # {board_hash: count}
-        self.repetition_threshold = 10  # 同じ盤面が10回出現したら引き分け
+        self.repetition_threshold = 5  # 同じ盤面が10回出現したら引き分け
 
         self.setup_initial_position()
 
@@ -435,7 +435,7 @@ class ContrastGame:
         input_tensor[88].fill(1.0)
 
         # 89: Move Count
-        input_tensor[89].fill(self.move_count / 100.0)
+        input_tensor[89].fill(self.move_count / game_config.MAX_STEPS_PER_GAME)
 
         return input_tensor
 
