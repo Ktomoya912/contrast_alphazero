@@ -39,7 +39,7 @@ class MCTSConfig:
     C_PUCT: float = 1.0  # PUCTアルゴリズムの探索係数
 
     # 温度パラメータの設定
-    TEMPERATURE_THRESHOLD: int = 15  # この手数まではランダム性を残す
+    TEMPERATURE_THRESHOLD: int = 30  # この手数まではランダム性を残す
     TEMPERATURE_EARLY: float = 1.0  # 序盤の温度
     TEMPERATURE_LATE: float = 0.0  # 中盤以降の温度（greedy）
 
@@ -73,18 +73,18 @@ class TrainingConfig:
     NUM_PARALLEL_SELFPLAY: int = max(1, NUM_CPUS - 2)
 
     # バッチとバッファ
-    BATCH_SIZE: int = 128
-    BUFFER_SIZE: int = 20000
+    BATCH_SIZE: int = 1024
+    BUFFER_SIZE: int = 20_000
 
     # 最適化
     LEARNING_RATE: float = 0.2
     WEIGHT_DECAY: float = 1e-4
-    LR_STEP_SIZE: int = 2000  # 学習率を減衰させるステップ間隔
+    LR_STEP_SIZE: int = 50_000  # 学習率を減衰させるステップ間隔
     LR_GAMMA: float = 0.5  # 学習率の減衰率
 
     # 学習ステップ
     MAX_STEPS: int = 50  # 1ゲームあたりの最大手数（引き分け防止）
-    MAX_EPOCH: int = MAX_STEPS * 10000  # 総学習ステップ数
+    MAX_EPOCH: int = MAX_STEPS * 10_000  # 総学習ステップ数
 
     # ログとチェックポイント
     LOG_INTERVAL: int = 50  # ログ出力の間隔

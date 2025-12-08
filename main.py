@@ -194,10 +194,15 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
     for sample in record:
         if winner == 0:
             # 引き分けにはペナルティを与える（決着をつけることを促す）
-            sample.reward = 0.0
+            sample.reward = -0.1
         else:
             # 自分の手番で勝ったなら+1, 負けたなら-1
             sample.reward = 1.0 if sample.player == winner else -1.0
+
+    if winner == 0:
+        logger.info(f"Selfplay result: DRAW (Step {step})")
+    else:
+        logger.info(f"Selfplay result: WIN P{winner} (Step {step})")
 
     return record
 
