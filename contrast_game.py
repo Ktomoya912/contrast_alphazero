@@ -265,7 +265,7 @@ class ContrastGame:
 
     # --- Step & Update ---
 
-    def step(self, action_hash: int) -> Tuple[bool, int]:
+    def step(self, action_hash: int | None) -> Tuple[bool, int]:
         """アクションを実行してゲーム状態を更新
 
         Args:
@@ -274,6 +274,8 @@ class ContrastGame:
         Returns:
             (game_over, winner): ゲーム終了フラグと勝者ID
         """
+        if action_hash is None or self.game_over:
+            return self.game_over, self.winner
         # デコード処理 (高速な整数演算のみ)
         move_idx = action_hash // self.ACTION_SIZE_TILE
         tile_idx = action_hash % self.ACTION_SIZE_TILE

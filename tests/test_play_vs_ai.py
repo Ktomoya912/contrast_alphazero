@@ -9,6 +9,7 @@ import sys
 
 import numpy as np
 
+from contrast_game import P1, P2
 from logger import setup_logger
 from play_vs_ai import HumanVsAI
 
@@ -25,6 +26,8 @@ def test_initialization():
     assert game.player1_type == "human"
     assert game.player2_type == "ai"
     assert game.num_simulations == 5
+    assert P1 in game.players
+    assert P2 in game.players
 
     print("✓ 初期化成功")
 
@@ -34,11 +37,14 @@ def test_ai_action():
     print("\nAI行動テスト...")
 
     game = HumanVsAI(
-        model_path="nonexistent.pth", num_simulations=5, player1_type="human"
+        model_path="nonexistent.pth",
+        num_simulations=5,
+        player1_type="ai",
+        player2_type="ai",
     )
 
-    # 初期状態でAIの行動を取得（プレイヤー1の番だがAIとして動作させる）
-    action = game.get_ai_action()
+    # 初期状態でAIの行動を取得（プレイヤー1の番）
+    action = game.get_action_for_player(P1)
 
     assert action is not None
     assert isinstance(action, (int, np.integer))
@@ -52,7 +58,10 @@ def test_multiple_ai_moves():
     print("\n複数回AI行動テスト...")
 
     game = HumanVsAI(
-        model_path="nonexistent.pth", num_simulations=3, player1_type="human"
+        model_path="nonexistent.pth",
+        num_simulations=3,
+        player1_type="ai",
+        player2_type="ai",
     )
 
     # 数手進める
@@ -61,7 +70,7 @@ def test_multiple_ai_moves():
 
     while not game.game.game_over and moves_made < max_moves:
         # AIの行動を取得して実行
-        action = game.get_ai_action()
+        action = game.get_action_for_player(game.game.current_player)
         if action is None:
             break
 
@@ -72,6 +81,36 @@ def test_multiple_ai_moves():
             break
 
     print(f"✓ {moves_made}手実行成功")
+    assert moves_made > 0
+
+
+def test_different_player_types():
+    """異なるプレイヤータイプのテスト"""
+    print("\n異なるプレイヤータイプテスト...")
+
+    # random vs rule
+    game = HumanVsAI(
+        model_path="nonexistent.pth",
+        num_simulations=3,
+        player1_type="random",
+        player2_type="rule",
+    )
+
+    moves_made = 0
+    max_moves = 10
+
+    while not game.game.game_over and moves_made < max_moves:
+        action = game.get_action_for_player(game.game.current_player)
+        if action is None:
+            break
+
+        done, winner = game.game.step(action)
+        moves_made += 1
+
+        if done:
+            break
+
+    print(f"✓ {moves_made}手実行成功 (random vs rule)")
     assert moves_made > 0
 
 
@@ -87,6 +126,7 @@ if __name__ == "__main__":
         test_initialization()
         test_ai_action()
         test_multiple_ai_moves()
+        test_different_player_types()
 
         print("\n" + "=" * 50)
         print("✅ 全てのテストが成功しました")

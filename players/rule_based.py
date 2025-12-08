@@ -1,16 +1,31 @@
 import numpy as np
 
-from contrast_game import P1, P2, TILE_BLACK, TILE_GRAY, ContrastGame, decode_action
+from contrast_game import (
+    P1,
+    P2,
+    TILE_BLACK,
+    TILE_GRAY,
+    ContrastGame,
+    decode_action,
+)
+
+from .base import BasePlayer
 
 
-class RuleBasedPlayerV2:
-    def __init__(self, player_id):
-        self.player_id = player_id
+class RuleBasedPlayer(BasePlayer):
+    """ルールベースのAIプレイヤー（高度な戦略版）
+
+    C++版のKontrastBotV2を移植した戦略的なAIプレイヤー。
+    7段階の優先順位に基づいて最適な手を選択します。
+    """
+
+    def __init__(self, player_id: int):
+        super().__init__(player_id)
         self.opponent_id = P2 if player_id == P1 else P1
 
         # プレイヤーごとの方向定義
         # P1(1): 下(4)から上(0)へ攻める -> dir = -1
-        # P2(2): 上(0)から下(4)へ攻める -> dir = 1
+        # P2(2): 上(0)から下(4)へ�める -> dir = 1
         self.direction = -1 if player_id == P1 else 1
         self.goal_row = 0 if player_id == P1 else 4
         self.home_row = 4 if player_id == P1 else 0
@@ -18,6 +33,23 @@ class RuleBasedPlayerV2:
         self.board_width = 5
 
     def get_action(self, game: ContrastGame):
+        """戦略的な行動選択
+
+        優先順位:
+        1. 即時勝利
+        2. 即時敗北の阻止
+        3. パリティ制御
+        4. 敵の横列形成阻止
+        5. 先行駒の優先
+        6. 側面攻撃
+        7. スコアベース選択
+
+        Args:
+            game: 現在のゲーム状態
+
+        Returns:
+            選択されたアクションのハッシュ値（player_idに応じた正しい座標系）
+        """
         legal_hashes = game.get_all_legal_actions()
         if not legal_hashes:
             return None
@@ -101,13 +133,12 @@ class RuleBasedPlayerV2:
     def _row_progress(self, move):
         """ゴールの方向への進捗度"""
         delta = move["dy"] - move["sy"]
-        return delta if self.player_id == P2 else -delta  # P2は+方向、P1は-方向が進捗
+        return delta if self.player_id == P2 else -delta
 
     def _distance_to_nearest_empty_goal(self, game, x, y, player):
-        target = 4 if player == P2 else 0  # Goal row
+        target = 4 if player == P2 else 0
         best = 1000
 
-        # ゴール列の空きマスを探す
         for gx in range(5):
             if game.pieces[target, gx] == 0:
                 dist = abs(x - gx) + abs(y - target)
@@ -119,8 +150,6 @@ class RuleBasedPlayerV2:
 
     def _min_distance_to_empty_goal(self, game, player):
         best = 1000
-        # プレイヤーの全ての駒について調査
-        # np.argwhereを使うと少し遅いかもしれないがPythonでは簡潔
         pieces = np.argwhere(game.pieces == player)
         for py, px in pieces:
             d = self._distance_to_nearest_empty_goal(game, px, py, player)
@@ -135,33 +164,27 @@ class RuleBasedPlayerV2:
         """各列の戦況（最前線の味方、敵、ギャップ）を分析"""
         cols = []
 
-        # 方向に応じたループ範囲の設定
-        # P2(Black/Down): 上から下へ探索
-        # P1(White/Up): 下から上へ探索
-
         for x in range(self.board_width):
             info = {
                 "x": x,
                 "has_friend": False,
                 "friend_row": -1,
                 "friend_proj": -1,
-                "has_enemy_front": False,  # 自陣から見て最も近い敵
+                "has_enemy_front": False,
                 "enemy_front_row": -1,
                 "enemy_front_proj": -1,
-                "has_enemy_ahead": False,  # 味方最前線より先にいる敵
+                "has_enemy_ahead": False,
                 "enemy_ahead_row": -1,
                 "gap": -1,
             }
 
-            # 1. 味方の最前線を探す (Goalに近い側)
-            if self.player_id == P2:  # 上から下へ攻める -> 下(大きいy)にあるのが最前線
-                # C++: for y=0 to H (finds friend, overwrites) -> 最後にヒットしたのが最も下の駒
+            # 1. 味方の最前線を探す
+            if self.player_id == P2:
                 for y in range(self.board_height):
                     if game.pieces[y, x] == self.player_id:
                         info["has_friend"] = True
                         info["friend_row"] = y
-            else:  # P1: 下から上へ攻める -> 上(小さいy)にあるのが最前線
-                # C++: for y=H-1 downto 0 -> 最後にヒットしたのが最も上の駒
+            else:
                 for y in range(self.board_height - 1, -1, -1):
                     if game.pieces[y, x] == self.player_id:
                         info["has_friend"] = True
@@ -170,16 +193,14 @@ class RuleBasedPlayerV2:
             if info["has_friend"]:
                 info["friend_proj"] = self._project_row(info["friend_row"])
 
-            # 2. 敵の最前線を探す (Homeに近い側＝侵入してきている敵)
-            # P2視点: 上(Home)に近い敵を探す -> 小さいy
-            # P1視点: 下(Home)に近い敵を探す -> 大きいy
+            # 2. 敵の最前線を探す
             if self.player_id == P2:
                 for y in range(self.board_height):
                     if game.pieces[y, x] == self.opponent_id:
                         info["has_enemy_front"] = True
                         info["enemy_front_row"] = y
                         info["enemy_front_proj"] = self._project_row(y)
-                        break  # 最初に見つけたのがHomeに一番近い
+                        break
             else:
                 for y in range(self.board_height - 1, -1, -1):
                     if game.pieces[y, x] == self.opponent_id:
@@ -188,7 +209,7 @@ class RuleBasedPlayerV2:
                         info["enemy_front_proj"] = self._project_row(y)
                         break
 
-            # 3. 味方最前線と、その先にいる敵とのギャップ
+            # 3. 味方最前線と敵とのギャップ
             if info["has_friend"]:
                 y = info["friend_row"] + self.direction
                 while 0 <= y < self.board_height:
@@ -197,12 +218,11 @@ class RuleBasedPlayerV2:
                         info["has_enemy_ahead"] = True
                         info["enemy_ahead_row"] = y
                         break
-                    if occ != 0:  # 他の駒（味方）があればブロックとみなす
+                    if occ != 0:
                         break
                     y += self.direction
 
                 if info["has_enemy_ahead"]:
-                    # gap計算: 間の空きマスの数
                     if self.player_id == P2:
                         info["gap"] = max(
                             0, info["enemy_ahead_row"] - info["friend_row"] - 1
@@ -219,8 +239,6 @@ class RuleBasedPlayerV2:
 
     def _check_immediate_win(self, game: ContrastGame, move):
         """1. 即時勝利のチェック"""
-        # 簡易シミュレーション: stepは重いので座標判定のみ行う
-        # ゴール列に到達するかどうか
         if move["dy"] == self.goal_row:
             return True
         return False
@@ -230,16 +248,10 @@ class RuleBasedPlayerV2:
         if self._min_distance_to_empty_goal(game, self.opponent_id) > 1:
             return None
 
-        # 全ての手について、それを打った後に相手が勝てなくなるか試す
         for m in moves:
-            # 高速化のため、単純なコピーと更新を行う
-            # ただし完全なルール（飛び越えなど）はstepに任せるのが安全
             g_copy = game.copy()
-            # stepはhashを受け取る
             g_copy.step(m["hash"])
 
-            # 自分が動いた後、相手の手番になる。
-            # 相手の最短距離が1より大きくなっていれば成功
             if self._min_distance_to_empty_goal(g_copy, self.opponent_id) > 1:
                 return m
         return None
@@ -264,8 +276,6 @@ class RuleBasedPlayerV2:
         if counted == 0:
             return None
 
-        # ギャップの合計が奇数なら、前進して主導権を握る (wants_forward)
-        # 偶数なら、タイルを置いてパスし、相手に動かさせる (wait)
         wants_forward = total_gap % 2 == 1
 
         if wants_forward:
@@ -274,14 +284,13 @@ class RuleBasedPlayerV2:
 
             for m in moves:
                 if m["place_tile"]:
-                    continue  # 移動のみ
+                    continue
                 if m["dx"] != m["sx"]:
-                    continue  # 直進のみ
+                    continue
                 if self._row_progress(m) <= 0:
-                    continue  # 前進のみ
+                    continue
 
                 col = columns[m["sx"]]
-                # 今計算した最前線の駒のみ動かす
                 if not col["has_friend"] or col["friend_row"] != m["sy"]:
                     continue
 
@@ -301,16 +310,13 @@ class RuleBasedPlayerV2:
                     best_score = score
                     best = m
             return best
-
         else:
-            # 偶数なら、敵の目の前にタイルを置いて手番を稼ぐ
             best = None
             best_score = -float("inf")
 
             for m in moves:
                 if not m["place_tile"]:
                     continue
-                # タイル配置先が有効な列か
                 tx = m["tx"]
                 if not (0 <= tx < len(columns)):
                     continue
@@ -319,8 +325,6 @@ class RuleBasedPlayerV2:
                 if not col["has_friend"] or not col["has_enemy_front"]:
                     continue
 
-                # 敵の目の前(自分の進行方向逆側)のマス
-                # P2(dir=1)なら敵のy-1, P1(dir=-1)なら敵のy+1
                 desired_row = col["enemy_front_row"] - self.direction
 
                 if not (0 <= desired_row < self.board_height):
@@ -354,14 +358,12 @@ class RuleBasedPlayerV2:
                 continue
 
             irregular = False
-            # 左隣との段差チェック
             if i > 0 and columns[i - 1]["has_enemy_front"]:
                 if (
                     abs(columns[i - 1]["enemy_front_proj"] - col["enemy_front_proj"])
                     >= 2
                 ):
                     irregular = True
-            # 右隣との段差チェック
             if i + 1 < self.board_width and columns[i + 1]["has_enemy_front"]:
                 if (
                     abs(columns[i + 1]["enemy_front_proj"] - col["enemy_front_proj"])
@@ -372,7 +374,6 @@ class RuleBasedPlayerV2:
             if irregular:
                 targets.append(i)
 
-        # ターゲットがなければ、最も進んでいる敵を狙う
         if not targets:
             fallback_col = -1
             closest = float("inf")
@@ -397,7 +398,6 @@ class RuleBasedPlayerV2:
 
             score = 0
             for idx in targets:
-                # ターゲットの列かその隣に置く
                 if abs(m["tx"] - idx) > 1:
                     continue
 
@@ -408,11 +408,10 @@ class RuleBasedPlayerV2:
                 row_diff = abs(m["ty"] - target_col["enemy_front_row"])
                 current_score = max(0, 80 - row_diff * 15)
 
-                # 敵より前(自分側)に置くならボーナス
                 ahead = False
-                if self.player_id == P2:  # 下へ攻める。敵より下(大きいy)ならahead
+                if self.player_id == P2:
                     ahead = m["ty"] >= target_col["enemy_front_row"]
-                else:  # 上へ攻める。敵より上(小さいy)ならahead
+                else:
                     ahead = m["ty"] <= target_col["enemy_front_row"]
 
                 if ahead:
@@ -444,21 +443,18 @@ class RuleBasedPlayerV2:
             if m["place_tile"]:
                 continue
             if self._row_progress(m) <= 0:
-                continue  # 前進のみ
+                continue
             if m["dx"] != m["sx"]:
-                continue  # 直進のみ
-            # 端の駒を優先して上げる (raise edges first)
+                continue
             if m["sx"] != 0 and m["sx"] != self.board_width - 1:
                 continue
 
             col = columns[m["sx"]]
             score = self._row_progress(m) * 110
 
-            # 最前線の駒ならボーナス
             if col["has_friend"] and col["friend_row"] == m["sy"]:
                 score += 30
 
-            # ゴールに近いほど高スコア
             score += self._project_row(m["dy"]) * 5
 
             if score > best_score:
@@ -471,7 +467,6 @@ class RuleBasedPlayerV2:
         """6. 直進してくる敵を側面から抜く"""
         columns = self._collect_column_info(game)
 
-        # 最も突出している敵を探す
         closest_enemy = float("inf")
         for col in columns:
             if col["has_enemy_front"]:
@@ -493,14 +488,11 @@ class RuleBasedPlayerV2:
             if not col["has_enemy_front"]:
                 continue
 
-            # 突出した敵より後ろにいる敵は無視
             if col["enemy_front_proj"] > closest_enemy + 1:
                 continue
 
-            # 敵の目の前のマス
             desired_row = col["enemy_front_row"] - self.direction
 
-            # 移動後の敵とのギャップ
             after_gap = 0
             if self.player_id == P2:
                 after_gap = max(0, col["enemy_front_row"] - m["dy"] - 1)
@@ -528,31 +520,19 @@ class RuleBasedPlayerV2:
         for m in moves:
             score = self._row_progress(m) * 80
 
-            # 移動先のゴールまでの距離が近いほど良い
             dist = self._distance_to_nearest_empty_goal(
                 game, m["dx"], m["dy"], self.player_id
             )
             score -= dist * 15
 
             if not m["place_tile"]:
-                # 敵を踏む（取る）ならボーナス (ただしContrastに駒取りはないが、相手マスへの移動=ブロック)
-                # 相手がいる場所に移動できる＝相手を飛び越えたか排除したか。
-                # Contrastのルールでは相手のいるマスには止まれない。
-                # ここでは「相手の進路を塞ぐ」等の意味合いだが、C++ロジックをそのまま模倣。
-                # C++: if (s.board().at(m.dx, m.dy).occupant == opponent) score += 50;
-                # しかしget_valid_movesで相手のいるマスは除外されているはず。
-                # もしルール上「相手を排除」があるならここに入るが、現状の実装ではないため無視されるか、
-                # 「相手の初期位置だった場所」などの意味かもしれない。
-                # 一旦、相手がいるかチェック（基本False）
                 if game.pieces[m["dy"], m["dx"]] == self.opponent_id:
                     score += 50
             else:
-                # タイル配置の評価
                 if m["tile"] == TILE_GRAY:
                     score += 30
                 elif m["tile"] == TILE_BLACK:
                     score += 15
-                # 自分の近くに置く
                 if abs(m["tx"] - m["sx"]) <= 1:
                     score += 10
 
