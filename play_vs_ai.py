@@ -3,6 +3,7 @@ from pathlib import Path
 
 import torch
 
+from config import mcts_config, path_config
 from contrast_game import (
     OPPONENT,
     P1,
@@ -22,15 +23,19 @@ logger = get_logger(__name__)
 
 class HumanVsAI:
     def __init__(
-        self, model_path, num_simulations=50, player1_type="human", player2_type="ai"
+        self, model_path, num_simulations=None, player1_type="human", player2_type="ai"
     ):
         """
         Args:
             model_path: 学習済みモデルのパス
-            num_simulations: MCTSのシミュレーション回数
+            num_simulations: MCTSのシミュレーション回数 (Noneの場合はconfig.pyから取得)
             player1_type: プレイヤー1のタイプ ("human", "ai", "random", "rule")
             player2_type: プレイヤー2のタイプ ("human", "ai", "random", "rule")
         """
+        # config.pyからデフォルト値を取得
+        if num_simulations is None:
+            num_simulations = mcts_config.NUM_SIMULATIONS
+
         self.player1_type = player1_type
         self.player2_type = player2_type
         self.num_simulations = num_simulations
@@ -380,11 +385,15 @@ class HumanVsAI:
             # ランダム性を加える
             score += random.random()
 
-            if score > best_score:
-                best_score = score
-                best_action = action
+        if score > best_score:
+            best_score = score
+            best_action = action
 
         # アクションを解釈して表示
+        if best_action is None:
+            logger.error("最適なアクションが見つかりませんでした")
+            return None
+
         move_idx, tile_idx = decode_action(best_action)
         from_idx = move_idx // 25
         to_idx = move_idx % 25
@@ -426,7 +435,7 @@ class HumanVsAI:
             return None
 
         # 最も訪問回数が多いアクションを選択
-        action = max(policy, key=policy.get)
+        action = max(policy, key=lambda x: policy[x])
         value = values.get(action, 0.0)
 
         # アクションを解釈して表示
@@ -552,14 +561,14 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="contrast_model_final.pth",
-        help="学習済みモデルのパス",
+        default=path_config.FINAL_MODEL_PATH,
+        help=f"学習済みモデルのパス (デフォルト: {path_config.FINAL_MODEL_PATH})",
     )
     parser.add_argument(
         "--simulations",
         type=int,
-        default=100,
-        help="MCTSのシミュレーション回数 (デフォルト: 100)",
+        default=mcts_config.NUM_SIMULATIONS,
+        help=f"MCTSのシミュレーション回数 (デフォルト: {mcts_config.NUM_SIMULATIONS})",
     )
     parser.add_argument(
         "--player1",

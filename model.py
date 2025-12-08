@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from config import game_config, network_config
 from logger import get_logger
 
 logger = get_logger(__name__)
@@ -41,8 +42,21 @@ class ContrastDualPolicyNet(nn.Module):
     """
 
     def __init__(
-        self, input_channels=90, board_size=5, num_res_blocks=4, num_filters=64
+        self,
+        input_channels=None,
+        board_size=None,
+        num_res_blocks=None,
+        num_filters=None,
     ):
+        # config.pyからデフォルト値を取得
+        if input_channels is None:
+            input_channels = game_config.INPUT_CHANNELS
+        if board_size is None:
+            board_size = game_config.BOARD_SIZE
+        if num_res_blocks is None:
+            num_res_blocks = network_config.NUM_RES_BLOCKS
+        if num_filters is None:
+            num_filters = network_config.NUM_FILTERS
         super(ContrastDualPolicyNet, self).__init__()
         self.board_size = board_size
 
@@ -65,20 +79,36 @@ class ContrastDualPolicyNet(nn.Module):
         )
 
         # --- 3. Move Policy Head ---
-        self.move_conv = nn.Conv2d(num_filters, 32, kernel_size=1, stride=1, bias=False)
-        self.move_bn = nn.BatchNorm2d(32)
-        self.move_fc = nn.Linear(32 * board_size * board_size, self.move_size)
+        move_head_filters = network_config.MOVE_HEAD_FILTERS
+        self.move_conv = nn.Conv2d(
+            num_filters, move_head_filters, kernel_size=1, stride=1, bias=False
+        )
+        self.move_bn = nn.BatchNorm2d(move_head_filters)
+        self.move_fc = nn.Linear(
+            move_head_filters * board_size * board_size, self.move_size
+        )
 
         # --- 4. Tile Policy Head ---
-        self.tile_conv = nn.Conv2d(num_filters, 16, kernel_size=1, stride=1, bias=False)
-        self.tile_bn = nn.BatchNorm2d(16)
-        self.tile_fc = nn.Linear(16 * board_size * board_size, self.tile_size)
+        tile_head_filters = network_config.TILE_HEAD_FILTERS
+        self.tile_conv = nn.Conv2d(
+            num_filters, tile_head_filters, kernel_size=1, stride=1, bias=False
+        )
+        self.tile_bn = nn.BatchNorm2d(tile_head_filters)
+        self.tile_fc = nn.Linear(
+            tile_head_filters * board_size * board_size, self.tile_size
+        )
 
         # --- 5. Value Head ---
-        self.value_conv = nn.Conv2d(num_filters, 4, kernel_size=1, stride=1, bias=False)
-        self.value_bn = nn.BatchNorm2d(4)
-        self.value_fc1 = nn.Linear(4 * board_size * board_size, 32)
-        self.value_fc2 = nn.Linear(32, 1)
+        value_head_filters = network_config.VALUE_HEAD_FILTERS
+        value_hidden_size = network_config.VALUE_HIDDEN_SIZE
+        self.value_conv = nn.Conv2d(
+            num_filters, value_head_filters, kernel_size=1, stride=1, bias=False
+        )
+        self.value_bn = nn.BatchNorm2d(value_head_filters)
+        self.value_fc1 = nn.Linear(
+            value_head_filters * board_size * board_size, value_hidden_size
+        )
+        self.value_fc2 = nn.Linear(value_hidden_size, 1)
 
     def forward(self, x):
         """
@@ -122,13 +152,26 @@ class ContrastDualPolicyNet(nn.Module):
         return move_logits, tile_logits, value
 
 
-# --- 損失関数の定義例 ---
+# --- 損失関数の定義 ---
 def loss_function(
     move_logits, tile_logits, value_pred, move_targets, tile_targets, value_targets
 ):
     """
-    AlphaZero Loss = (z - v)^2 - pi^T * log(p) + c||theta||^2
-    ここではMoveとTileのCrossEntropyを合算します。
+    AlphaZero損失関数
+
+    Loss = (z - v)^2 - pi^T * log(p) + c||theta||^2
+    MoveとTileのCrossEntropyを合算します。
+
+    Args:
+        move_logits: Moveのロジット (Batch, 625)
+        tile_logits: Tileのロジット (Batch, 51)
+        value_pred: 価値予測 (Batch, 1)
+        move_targets: Moveのターゲット (Batch, 625)
+        tile_targets: Tileのターゲット (Batch, 51)
+        value_targets: 価値のターゲット (Batch, 1)
+
+    Returns:
+        (total_loss, (value_loss, move_loss, tile_loss))
     """
     # 1. Value Loss (MSE)
     value_loss = F.mse_loss(value_pred.view(-1), value_targets.view(-1))

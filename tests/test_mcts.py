@@ -696,7 +696,7 @@ class TestMCTSIntegration(unittest.TestCase):
                 break
 
             # 最も訪問回数が多いアクションを選択
-            action = max(policy, key=policy.get)
+            action = max(policy, key=lambda x: policy[x])
 
             game.step(action)
             move_count += 1

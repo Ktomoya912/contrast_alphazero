@@ -37,38 +37,87 @@
 2. **相手のコマがいるマスには移動できません**
 3. タイル配置数: 黒タイル×3、グレータイル×1 (各プレイヤー)
 
+## プロジェクト構成
+
+```
+contrast_alphazero/
+├── config.py              # 設定ファイル（ハイパーパラメータ、定数）
+├── contrast_game.py       # ゲームロジック
+├── model.py              # ニューラルネットワークモデル
+├── mcts.py               # モンテカルロ木探索の実装
+├── main.py               # 学習メインループ
+├── elo_evaluator.py      # ELOレーティング評価
+├── rule_based_ai.py      # ルールベースAI
+├── play_vs_ai.py         # 対戦インターフェース
+├── logger.py             # ロギング設定
+├── debug.py              # デバッグツール
+├── logs/                 # ログファイル
+├── models/               # 保存されたモデル
+└── tests/                # テストコード
+```
+
 ## 使い方
 
 ### 1. 学習済みモデルと対戦
 ```bash
-# デフォルト設定で対戦 (プレイヤー1として、100シミュレーション)
+# デフォルト設定で対戦（人間 vs AI）
 uv run play_vs_ai.py
 
 # オプション指定
-uv run play_vs_ai.py --model contrast_model_final.pth --simulations 200 --player 1
+uv run play_vs_ai.py --model contrast_model_final.pth --simulations 200
+
+# AI同士の対戦
+uv run play_vs_ai.py --player1 ai --player2 rule
 
 # ヘルプ表示
 uv run play_vs_ai.py --help
 ```
 
+#### 対戦オプション
+- `--model`: モデルファイルパス（デフォルト: `contrast_model_final.pth`）
+- `--simulations`: MCTSシミュレーション回数（デフォルト: 100）
+- `--player1`: プレイヤー1のタイプ（`human`, `ai`, `random`, `rule`）
+- `--player2`: プレイヤー2のタイプ（`human`, `ai`, `random`, `rule`）
+
 #### 操作方法
-- **駒の移動**: 移動元の座標と移動先の座標を入力 (例: `2,4` → `2,3`)
-- **タイル配置**: 移動後にタイルを配置するか選択
-  - 0: タイルなし
-  - 1: 黒タイル (斜め移動)
-  - 2: グレータイル (全方向移動)
-- **盤面記号**:
-  - `[1□]`: プレイヤー1の駒 (白タイル上)
-  - `[2■]`: プレイヤー2の駒 (黒タイル上)
-  - ` ▦ `: グレータイル
+- **入力形式**: `<移動前>,<移動後> <配置座標><タイルカラー>`
+  - 例: `b1,b2 b3g` → b1からb2へ移動、b3にグレータイル配置
+  - 例: `c5,c4` → c5からc4へ移動（タイル配置なし）
+- **座標**: 列(a-e)と行(1-5)で指定
+- **タイルカラー**: `b`(黒), `g`(グレー)
 
 ### 2. AIを学習させる
 ```bash
-# 学習実行 (main.pyで設定を調整)
+# 学習実行
 uv run main.py
 
 # デバッグモード
 uv run debug.py
+```
+
+#### 学習の監視
+- ログファイル: `logs/training_YYYYMMDD_HHMMSS.log`
+- モデル保存: `models/model_step_<step>_elo_<elo>.pth`
+- 最終モデル: `contrast_model_final.pth`
+
+### 3. 設定のカスタマイズ
+
+`config.py`で以下のパラメータを調整できます：
+
+```python
+# MCTS設定
+NUM_SIMULATIONS = 50        # シミュレーション回数
+DIRICHLET_ALPHA = 0.3       # 探索ノイズ
+C_PUCT = 1.0               # 探索バランス
+
+# 学習設定
+BATCH_SIZE = 128           # バッチサイズ
+LEARNING_RATE = 0.2        # 学習率
+BUFFER_SIZE = 20000        # リプレイバッファサイズ
+
+# 評価設定
+EVAL_INTERVAL = 1000       # 評価間隔
+EVAL_NUM_GAMES = 500       # 評価時の対戦数
 ```
 
 ## セットアップ
@@ -77,6 +126,7 @@ uv run debug.py
 - Python 3.8+
 - PyTorch 2.0+
 - NumPy
+- Ray (並列処理用)
 
 ### インストール (uv使用)
 ```bash
@@ -89,15 +139,31 @@ uv sync
 # 全テストを実行
 uv run -m pytest tests -v
 
-# ContrastGameのテストのみ
+# 特定のテストのみ
 uv run -m pytest tests/test_contrast_game.py -v
-
-# MCTSのテストのみ
 uv run -m pytest tests/test_mcts.py -v
 ```
 
-## テスト
+## 実装の特徴
 
+### リファクタリング内容
+1. **定数管理**: `config.py`で一元管理
+2. **型ヒント**: 全関数に型アノテーションを追加
+3. **ドキュメント**: 詳細なdocstringを追加
+4. **ログ出力**: 学習プロセスの詳細な追跡
+   - 損失の内訳（Value, Move, Tile）
+   - MCTSの統計情報
+   - 評価結果（ELO、勝率）
+5. **エラーハンドリング**: 各段階でのバリデーション強化
+
+### ログ情報
+学習中に以下の情報がログに記録されます：
+- **学習メトリクス**: 総損失、価値損失、移動損失、タイル損失
+- **Self-play情報**: ゲーム結果、手数、MCTS統計
+- **評価結果**: ELOレーティング、勝率、モデル保存パス
+- **システム情報**: バッファサイズ、学習率、デバイス情報
+
+## テスト
 ### テストカバレッジ
 
 プロジェクトには **86個** の網羅的なテストが含まれています。

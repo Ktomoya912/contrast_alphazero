@@ -1,6 +1,7 @@
 import ray
 import torch
 
+from config import evaluation_config, game_config, path_config
 from contrast_game import P1, P2, ContrastGame
 from logger import get_logger
 from mcts import MCTS
@@ -10,10 +11,27 @@ from rule_based_ai import RuleBasedPlayerV2
 logger = get_logger(__name__)
 
 
-# ★変更: Rayのアクターとして定義 (CPUを1つ専有)
 @ray.remote(num_cpus=1)
 class EloEvaluator:
-    def __init__(self, device_str="cpu", baseline_elo=1000, k_factor=32):
+    """ELOレーティングによるモデル評価クラス
+
+    ルールベースAIとの対戦を通じてモデルの強さを評価し、
+    ELOレーティングを管理します。
+    """
+
+    def __init__(self, device_str="cpu", baseline_elo=None, k_factor=None):
+        """
+        Args:
+            device_str: 計算デバイスの文字列表現
+            baseline_elo: ベースラインAIのELOレーティング (Noneの場合はconfig.pyから取得)
+            k_factor: ELO計算のK係数 (Noneの場合はconfig.pyから取得)
+        """
+        # config.pyからデフォルト値を取得
+        if baseline_elo is None:
+            baseline_elo = evaluation_config.BASELINE_ELO
+        if k_factor is None:
+            k_factor = evaluation_config.K_FACTOR
+
         # Rayのシリアライズ対策で device は文字列で受け取り内部で変換
         self.device = torch.device(device_str)
         self.baseline_elo = baseline_elo
@@ -27,10 +45,23 @@ class EloEvaluator:
         self.model.eval()
 
     def evaluate(self, model_weights, step_count, num_games=10, mcts_simulations=50):
+        """モデルを評価してELOを更新
+
+        Args:
+            model_weights: 評価するモデルの重み
+            step_count: 現在の学習ステップ数
+            num_games: 対戦回数
+            mcts_simulations: MCTSシミュレーション回数
+
+        Returns:
+            (elo, win_rate): 更新後のELOと勝率
         """
-        対戦を行いELOを更新し、モデルを保存する
-        """
-        # ウェイトのロード
+        logger.info(
+            f"Starting evaluation at step {step_count}: "
+            f"{num_games} games, {mcts_simulations} MCTS sims"
+        )
+
+        # ウエイトのロード
         self.model.load_state_dict(model_weights)
 
         wins = 0
@@ -53,15 +84,20 @@ class EloEvaluator:
                 rb_bot = self.rule_based_bot_p1
 
             step = 0
-            while not game.game_over and step < 150:
+            max_steps = game_config.MAX_STEPS_PER_GAME
+            while not game.game_over and step < max_steps:
                 if game.current_player == model_player:
                     policy, _ = mcts.search(game, mcts_simulations)
                     if not policy:
+                        logger.warning(f"Game {i + 1}: No valid policy for model")
                         break
-                    action = max(policy, key=policy.get)
+                    action = max(policy, key=lambda x: policy[x])
                 else:
                     action = rb_bot.get_action(game)
                     if action is None:
+                        logger.warning(
+                            f"Game {i + 1}: No valid action for rule-based AI"
+                        )
                         break
 
                 game.step(action)
@@ -95,8 +131,8 @@ class EloEvaluator:
         logger.info(log_msg)
         print(log_msg)  # Rayのログ転送用
 
-        # モデルの保存 (評価プロセス側で行う)
-        save_path = f"models/model_step_{step_count}_elo_{int(self.agent_elo)}.pth"
+        # モデルの保存 (評価プロセス側で行う、config.pyからパスを取得)
+        save_path = f"{path_config.MODELS_DIR}/model_step_{step_count}_elo_{int(self.agent_elo)}.pth"
         torch.save(model_weights, save_path)
 
         return self.agent_elo, win_rate

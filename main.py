@@ -1,6 +1,5 @@
 import datetime
 import logging
-import os
 import random
 from collections import deque
 from dataclasses import dataclass
@@ -13,6 +12,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
 
+from config import (
+    evaluation_config,
+    mcts_config,
+    path_config,
+    training_config,
+)
 from contrast_game import P2, ContrastGame, flip_action
 
 # ★追加: 評価モジュールのインポート
@@ -23,19 +28,19 @@ from model import ContrastDualPolicyNet
 
 logger = get_logger(__name__)
 
-# 定数定義
-NUM_CPUS = min(os.cpu_count() or 2, 2)
-NUM_GPUS = 1 if torch.cuda.is_available() else 0
-BATCH_SIZE = 128
-BUFFER_SIZE = 20000
-LEARNING_RATE = 0.2
-WEIGHT_DECAY = 1e-4
-MAX_STEPS = 50  # ★変更: 150→50 無意味な往復を防ぐ
-MAX_EPOCH = MAX_STEPS * 10000
-# ★追加: 評価設定
-EVAL_INTERVAL = 1000  # 何ステップごとに評価するか
-EVAL_NUM_GAMES = 500  # 評価時の対戦数
-EVAL_MCTS_SIMS = 50  # 評価時のシミュレーション回数
+# 定数定義 (config.pyから取得)
+NUM_CPUS = training_config.NUM_CPUS
+NUM_GPUS = training_config.NUM_GPUS
+BATCH_SIZE = training_config.BATCH_SIZE
+BUFFER_SIZE = training_config.BUFFER_SIZE
+LEARNING_RATE = training_config.LEARNING_RATE
+WEIGHT_DECAY = training_config.WEIGHT_DECAY
+MAX_STEPS = training_config.MAX_STEPS
+MAX_EPOCH = training_config.MAX_EPOCH
+# 評価設定 (config.pyから取得)
+EVAL_INTERVAL = evaluation_config.EVAL_INTERVAL
+EVAL_NUM_GAMES = evaluation_config.EVAL_NUM_GAMES
+EVAL_MCTS_SIMS = evaluation_config.EVAL_MCTS_SIMS
 
 
 @dataclass
@@ -104,11 +109,23 @@ class ReplayBuffer:
 
 
 @ray.remote(num_cpus=1, num_gpus=0)
-def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
+def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
     """
     Ray Worker: Self-playを実行してデータを収集
+
+    Args:
+        weights: モデルの重み
+        num_mcts_simulations: MCTSのシミュレーション回数
+        dirichlet_alpha: ディリクレノイズのパラメータ
+
+    Returns:
+        ゲームのデータサンプルリスト
     """
     torch.set_num_threads(1)
+    # デフォルト値の設定 (config.pyから)
+    if dirichlet_alpha is None:
+        dirichlet_alpha = mcts_config.DIRICHLET_ALPHA
+
     # モデルの初期化 (CPU)
     model = ContrastDualPolicyNet()
     model.load_state_dict(weights)
@@ -116,7 +133,13 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
 
     # ゲームとMCTSの初期化
     game = ContrastGame()
-    mcts = MCTS(network=model, device=torch.device("cpu"), alpha=dirichlet_alpha)
+    mcts = MCTS(
+        network=model,
+        device=torch.device("cpu"),
+        alpha=dirichlet_alpha,
+        c_puct=mcts_config.C_PUCT,
+        epsilon=mcts_config.DIRICHLET_EPSILON,
+    )
 
     record: list[Sample] = []
     done = False
@@ -133,17 +156,17 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
             winner = 0  # 引き分け扱い
             break
 
-        # 温度パラメータの制御
+        # 温度パラメータの制御 (config.pyから)
         # 序盤はランダム性を残し、中盤以降はGreedyに
         actions = list(mcts_policy.keys())
         probs = list(mcts_policy.values())
 
-        if step < 15:
+        if step < mcts_config.TEMPERATURE_THRESHOLD:
             # 温度 = 1 (確率に従って選択) - 序盤は多様な手を試す
             action = np.random.choice(actions, p=probs)
         else:
             # 温度 = 0 (最大確率の手を選択) - 中盤以降は最善手
-            action = max(mcts_policy, key=mcts_policy.get)
+            action = max(mcts_policy, key=lambda x: mcts_policy[x])
 
         # 記録 (現在の状態、MCTSの分布、手番)
         # encode_stateは (90, 5, 5) を返す
@@ -160,13 +183,11 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
         step += 1
 
     # ゲーム結果のログ出力（デバッグ用）
-    if winner == 0:
-        result = "Draw"
-    elif winner == 1:
-        result = "P1 Win"
-    else:
-        result = "P2 Win"
-    logger.debug(f"Game finished: {result}, Steps: {step}")
+    result_str = "Draw" if winner == 0 else f"P{winner} Win"
+    logger.debug(
+        f"Selfplay finished: {result_str}, Steps: {step}, "
+        f"MCTS sims: {num_mcts_simulations}"
+    )
 
     # 報酬の割り当て (Winner視点)
     # game.winner: P1(1) or P2(2) or Draw(0)
@@ -182,21 +203,36 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
 
 
 def main(n_parallel_selfplay=2, num_mcts_simulations=50):
+    """メイン学習ループ
+
+    Args:
+        n_parallel_selfplay: 並列化するSelf-playの数
+        num_mcts_simulations: MCTSのシミュレーション回数
+    """
     ray.init(
         ignore_reinit_error=True,
         include_dashboard=False,
         configure_logging=True,
         logging_level=logging.ERROR,
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f"Training on {device}")
+    device = training_config.DEVICE
+    logger.info(f"Training started on {device}")
+    logger.info(
+        f"Config: Parallel workers={n_parallel_selfplay}, "
+        f"MCTS sims={num_mcts_simulations}, Batch size={BATCH_SIZE}, "
+        f"Buffer size={BUFFER_SIZE}, LR={LEARNING_RATE}"
+    )
 
     network = ContrastDualPolicyNet().to(device)
     optimizer = optim.Adam(
         network.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
     )
-    # 学習率スケジューラ (2000ステップごとに学習率を半分に)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2000, gamma=0.5)
+    # 学習率スケジューラ (config.pyから設定を取得)
+    scheduler = optim.lr_scheduler.StepLR(
+        optimizer,
+        step_size=training_config.LR_STEP_SIZE,
+        gamma=training_config.LR_GAMMA,
+    )
 
     # ★変更: 評価用ActorをCPUで起動
     elo_evaluator = EloEvaluator.remote(device_str="cpu", baseline_elo=1000)
@@ -250,17 +286,23 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
             loss.backward()
             optimizer.step()
             scheduler.step()
-            # 3. ウェイトの更新
-            # 一定ステップごとにRay上のウェイトを更新
-            if total_steps % 50 == 0:
+            # 3. ウエイトの更新
+            # 一定ステップごとにRay上のウエイトを更新 (config.pyから間隔を取得)
+            if total_steps % training_config.LOG_INTERVAL == 0:
                 current_weights_ref = ray.put(network.to("cpu").state_dict())
                 network.to(device)
                 current_lr = scheduler.get_last_lr()[0]
-                tqdm.write(
+
+                # 詳細なメトリクスログ
+                log_msg = (
                     f"Step {total_steps}: Loss={loss.item():.4f} "
-                    f"(V={value_loss.item():.4f}, M={move_loss.item():.4f}, T={tile_loss.item():.4f}) "
-                    f"LR={current_lr:.6f} Buffer={len(replay)}"
+                    f"(Value={value_loss.item():.4f}, "
+                    f"Move={move_loss.item():.4f}, "
+                    f"Tile={tile_loss.item():.4f}) | "
+                    f"LR={current_lr:.6f} | Buffer={len(replay)}/{BUFFER_SIZE}"
                 )
+                tqdm.write(log_msg)
+                logger.info(log_msg)
 
             # ★変更: 非同期評価ロジック
             # 前回の評価が終わっているかチェック
@@ -291,15 +333,29 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
             total_steps += 1
             pbar.update(1)
 
-    torch.save(network.state_dict(), "contrast_model_final.pth")
-    logger.info("Training finished.")
+    save_path = path_config.FINAL_MODEL_PATH
+    torch.save(network.state_dict(), save_path)
+    logger.info(f"Training finished. Final model saved to {save_path}")
+    logger.info(f"Total training steps: {total_steps}")
 
 
 if __name__ == "__main__":
-    # エントリーポイントでロギングを初期化
-    Path("logs").mkdir(exist_ok=True)
-    Path("models").mkdir(exist_ok=True)
+    # エントリーポイントでロギングを初期化 (config.pyからパスを取得)
+    Path(path_config.LOGS_DIR).mkdir(exist_ok=True)
+    Path(path_config.MODELS_DIR).mkdir(exist_ok=True)
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"{path_config.LOGS_DIR}/training_{timestamp}.log"
+
     setup_logger(
-        log_file=f"logs/training_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
+        log_level=logging.INFO,
+        log_file=log_file,
     )
+
+    logger.info("=" * 60)
+    logger.info("Contrast AlphaZero Training Started")
+    logger.info(f"Timestamp: {timestamp}")
+    logger.info(f"Log file: {log_file}")
+    logger.info("=" * 60)
+
     main(n_parallel_selfplay=NUM_CPUS - 2)

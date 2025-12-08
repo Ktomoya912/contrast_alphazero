@@ -29,7 +29,7 @@ def debug_selfplay():
         mcts_policy, _ = mcts.search(game, num_simulations)
 
         # 行動選択
-        action = max(mcts_policy, key=mcts_policy.get)
+        action = max(mcts_policy, key=lambda x: mcts_policy[x])
 
         # 実行
         game.step(action)

@@ -1,10 +1,17 @@
+"""Contrastゲームの実装
+
+このモジュールは、Contrastボードゲームのルールとロジックを実装しています。
+"""
+
 import copy
 from collections import deque
 from typing import List, Tuple
 
 import numpy as np
 
-# --- Constants for fast access ---
+from config import game_config
+
+# --- Game Constants ---
 # Players
 P1 = 1
 P2 = 2
@@ -14,7 +21,20 @@ OPPONENT = {P1: P2, P2: P1}
 TILE_WHITE = 0
 TILE_BLACK = 1
 TILE_GRAY = 2
-NUM_TILES = 51  # 0(pass) + 25(black) + 25(gray) 配置する場所
+
+# Action Space (from config)
+BOARD_SIZE = game_config.BOARD_SIZE
+NUM_BOARD_POSITIONS = game_config.NUM_BOARD_POSITIONS
+NUM_MOVES = game_config.NUM_MOVES
+NUM_TILE_ACTIONS = game_config.NUM_TILE_ACTIONS
+NUM_TILES = NUM_TILE_ACTIONS
+
+# Initial resources (from config)
+INITIAL_BLACK_TILES = game_config.INITIAL_BLACK_TILES
+INITIAL_GRAY_TILES = game_config.INITIAL_GRAY_TILES
+
+# History size (from config)
+HISTORY_SIZE = game_config.HISTORY_SIZE
 
 # Directions (Pre-computed)
 # 0: White (Orthogonal), 1: Black (Diagonal), 2: Gray (All)
@@ -29,9 +49,20 @@ DIRS = [
 
 
 class ContrastGame:
+    """Contrastゲームの状態管理クラス
+
+    このクラスは、ゲームの盤面状態、駒の配置、タイルの管理、
+    合法手の生成、ゲーム進行などを担当します。
+    """
+
     ACTION_SIZE_TILE = NUM_TILES
 
-    def __init__(self, board_size: int = 5):
+    def __init__(self, board_size: int = BOARD_SIZE) -> None:
+        """ゲームの初期化
+
+        Args:
+            board_size: 盤面のサイズ（デフォルト: 5）
+        """
         self.size = board_size
 
         # 盤面状態 (int8 array)
@@ -43,27 +74,43 @@ class ContrastGame:
         # 持ちタイル数 [Player-1][TileType] (Player index is 0 or 1 for array access)
         # index 0: P1, index 1: P2
         # index 0: Black, index 1: Gray
-        self.tile_counts = np.array([[3, 1], [3, 1]], dtype=np.int8)
+        self.tile_counts = np.array(
+            [
+                [INITIAL_BLACK_TILES, INITIAL_GRAY_TILES],
+                [INITIAL_BLACK_TILES, INITIAL_GRAY_TILES],
+            ],
+            dtype=np.int8,
+        )
 
         self.current_player = P1
         self.game_over = False
         self.winner = 0
         self.move_count = 0
 
-        # 履歴管理 (8手分)
+        # 履歴管理 (HISTORY_SIZE手分)
         # 高速化のため、dictではなくtuple(pieces, tiles, tile_counts)を保存
-        self.history = deque(maxlen=8)
+        self.history: deque = deque(maxlen=HISTORY_SIZE)
 
         self.setup_initial_position()
 
-    def setup_initial_position(self):
+    def setup_initial_position(self) -> None:
+        """初期配置をセットアップ
+
+        P1は下段(y=4)、P2は上段(y=0)に配置されます。
+        """
         self.pieces.fill(0)
         self.tiles.fill(0)
         # P1 at y=4, P2 at y=0
-        self.pieces[4, :] = P1
+        self.pieces[BOARD_SIZE - 1, :] = P1
         self.pieces[0, :] = P2
 
-        self.tile_counts = np.array([[3, 1], [3, 1]], dtype=np.int8)
+        self.tile_counts = np.array(
+            [
+                [INITIAL_BLACK_TILES, INITIAL_GRAY_TILES],
+                [INITIAL_BLACK_TILES, INITIAL_GRAY_TILES],
+            ],
+            dtype=np.int8,
+        )
         self.current_player = P1
         self.move_count = 0
         self.game_over = False
@@ -72,14 +119,21 @@ class ContrastGame:
         self.history.clear()
         self._save_history()
 
-    def _save_history(self):
-        """現在の状態を履歴に追加 (コピーを作成)"""
+    def _save_history(self) -> None:
+        """現在の状態を履歴に追加
+
+        状態のディープコピーを作成して履歴に追加します。
+        """
         self.history.appendleft(
             (self.pieces.copy(), self.tiles.copy(), self.tile_counts.copy())
         )
 
-    def copy(self):
-        """シミュレーション用の軽量コピー"""
+    def copy(self) -> "ContrastGame":
+        """シミュレーション用の軽量コピー
+
+        Returns:
+            ContrastGame: ゲーム状態のコピー
+        """
         new_game = ContrastGame(self.size)
         new_game.pieces = self.pieces.copy()
         new_game.tiles = self.tiles.copy()
@@ -95,8 +149,14 @@ class ContrastGame:
         return new_game
 
     def get_valid_moves(self, x: int, y: int) -> List[Tuple[int, int]]:
-        """
-        Numpy最適化された移動先生成
+        """指定された位置の駒の合法的な移動先を取得
+
+        Args:
+            x: X座標 (0-4)
+            y: Y座標 (0-4)
+
+        Returns:
+            合法的な移動先座標のリスト [(x, y), ...]
         """
         # 自分の駒でなければ移動不可
         if self.pieces[y, x] != self.current_player:
@@ -133,8 +193,11 @@ class ContrastGame:
         return moves
 
     def get_all_legal_actions(self) -> List[int]:
-        """
-        全合法手のハッシュ(int)のリストを返す。
+        """現在のプレイヤーの全合法手を取得
+
+        Returns:
+            合法手のアクションハッシュのリスト
+            各ハッシュは move_idx * NUM_TILES + tile_idx の形式
         """
         if self.game_over:
             return []
@@ -202,9 +265,14 @@ class ContrastGame:
 
     # --- Step & Update ---
 
-    def step(self, action_hash: int):
-        """
-        ハッシュ化されたアクションを受け取って状態を更新
+    def step(self, action_hash: int) -> Tuple[bool, int]:
+        """アクションを実行してゲーム状態を更新
+
+        Args:
+            action_hash: エンコードされたアクションハッシュ
+
+        Returns:
+            (game_over, winner): ゲーム終了フラグと勝者ID
         """
         # デコード処理 (高速な整数演算のみ)
         move_idx = action_hash // self.ACTION_SIZE_TILE
@@ -262,7 +330,11 @@ class ContrastGame:
 
         return self.game_over, self.winner
 
-    def _check_win_fast(self):
+    def _check_win_fast(self) -> None:
+        """勝利条件を高速チェック
+
+        P1が上段(y=0)に到達、またはP2が下段(y=4)に到達で勝利。
+        """
         # Numpy check is fast
         if np.any(self.pieces[0, :] == P1):
             self.game_over = True
@@ -274,9 +346,22 @@ class ContrastGame:
     # --- Encoding ---
 
     def encode_state(self) -> np.ndarray:
-        """
-        (90, 5, 5) の入力テンソルを生成
-        P2の場合は盤面を180度回転させ、P1視点に正規化する
+        """ニューラルネットワーク入力用の状態テンソルを生成
+
+        P2の場合は盤面を180度回転させ、P1視点に正規化します。
+
+        Returns:
+            (90, 5, 5)の入力テンソル
+            - 0-7: 現在プレイヤーの駒位置 (履歴)
+            - 8-15: 相手の駒位置 (履歴)
+            - 16-23: 黒タイル (履歴)
+            - 24-31: グレータイル (履歴)
+            - 56-63: 自分の黒タイル数 (履歴)
+            - 64-71: 自分のグレータイル数 (履歴)
+            - 72-79: 相手の黒タイル数 (履歴)
+            - 80-87: 相手のグレータイル数 (履歴)
+            - 88: 現在のプレイヤー識別子
+            - 89: 手数
         """
         input_tensor = np.zeros((90, 5, 5), dtype=np.float32)
 
