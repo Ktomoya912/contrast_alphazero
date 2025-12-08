@@ -68,7 +68,7 @@ class TrainingConfig:
     DEVICE: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 並列処理
-    NUM_CPUS: int = min(os.cpu_count() or 2, 2)
+    NUM_CPUS: int = os.cpu_count() or 2
     NUM_GPUS: int = 1 if torch.cuda.is_available() else 0
     NUM_PARALLEL_SELFPLAY: int = max(1, NUM_CPUS - 2)
 

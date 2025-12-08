@@ -209,6 +209,13 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
         n_parallel_selfplay: 並列化するSelf-playの数
         num_mcts_simulations: MCTSのシミュレーション回数
     """
+    # ワーカー数の検証
+    if n_parallel_selfplay < 1:
+        logger.warning(
+            f"Invalid n_parallel_selfplay={n_parallel_selfplay}, setting to 1"
+        )
+        n_parallel_selfplay = 1
+
     ray.init(
         ignore_reinit_error=True,
         include_dashboard=False,
@@ -358,4 +365,6 @@ if __name__ == "__main__":
     logger.info(f"Log file: {log_file}")
     logger.info("=" * 60)
 
-    main(n_parallel_selfplay=NUM_CPUS - 2)
+    # 並列selfplayワーカー数の決定（最小1を保証）
+    n_workers = max(1, NUM_CPUS - 2)
+    main(n_parallel_selfplay=n_workers)
