@@ -26,7 +26,7 @@ def debug_selfplay():
 
     while not game.game_over and step < max_steps:
         # MCTS実行
-        mcts_policy = mcts.search(game, num_simulations)
+        mcts_policy, _ = mcts.search(game, num_simulations)
 
         # 行動選択
         action = max(mcts_policy, key=mcts_policy.get)

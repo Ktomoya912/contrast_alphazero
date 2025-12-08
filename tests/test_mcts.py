@@ -299,12 +299,10 @@ class TestSearch(unittest.TestCase):
 
         game = ContrastGame()
 
-        policy, values = mcts.search(game, num_simulations=10)
+        policy, _ = mcts.search(game, num_simulations=10)
 
         # ポリシーが辞書
         self.assertIsInstance(policy, dict)
-        # 評価値も辞書
-        self.assertIsInstance(values, dict)
 
     def test_search_policy_probabilities_sum_to_one(self):
         """探索で得られたポリシーの確率合計が1であることを確認"""
@@ -314,7 +312,7 @@ class TestSearch(unittest.TestCase):
 
         game = ContrastGame()
 
-        policy, values = mcts.search(game, num_simulations=10)
+        policy, _ = mcts.search(game, num_simulations=10)
 
         if policy:
             probs = list(policy.values())

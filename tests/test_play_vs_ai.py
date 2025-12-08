@@ -18,10 +18,12 @@ def test_initialization():
     print("初期化テスト...")
 
     # 未学習モデルでも動作することを確認
-    game = HumanVsAI(model_path="nonexistent.pth", num_simulations=5, human_player=1)
+    game = HumanVsAI(
+        model_path="nonexistent.pth", num_simulations=5, player1_type="human"
+    )
 
-    assert game.human_player == 1
-    assert game.ai_player == 2
+    assert game.player1_type == "human"
+    assert game.player2_type == "ai"
     assert game.num_simulations == 5
 
     print("✓ 初期化成功")
@@ -31,7 +33,9 @@ def test_ai_action():
     """AI行動のテスト"""
     print("\nAI行動テスト...")
 
-    game = HumanVsAI(model_path="nonexistent.pth", num_simulations=5, human_player=1)
+    game = HumanVsAI(
+        model_path="nonexistent.pth", num_simulations=5, player1_type="human"
+    )
 
     # 初期状態でAIの行動を取得（プレイヤー1の番だがAIとして動作させる）
     action = game.get_ai_action()
@@ -47,7 +51,9 @@ def test_multiple_ai_moves():
     """複数回のAI行動テスト"""
     print("\n複数回AI行動テスト...")
 
-    game = HumanVsAI(model_path="nonexistent.pth", num_simulations=3, human_player=1)
+    game = HumanVsAI(
+        model_path="nonexistent.pth", num_simulations=3, player1_type="human"
+    )
 
     # 数手進める
     moves_made = 0

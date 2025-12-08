@@ -21,15 +21,18 @@ logger = get_logger(__name__)
 
 
 class HumanVsAI:
-    def __init__(self, model_path, num_simulations=50, human_player=P1):
+    def __init__(
+        self, model_path, num_simulations=50, player1_type="human", player2_type="ai"
+    ):
         """
         Args:
             model_path: 学習済みモデルのパス
             num_simulations: MCTSのシミュレーション回数
-            human_player: 人間が操作するプレイヤー (P1 or P2)
+            player1_type: プレイヤー1のタイプ ("human", "ai", "random", "rule")
+            player2_type: プレイヤー2のタイプ ("human", "ai", "random", "rule")
         """
-        self.human_player = human_player
-        self.ai_player = OPPONENT[human_player]
+        self.player1_type = player1_type
+        self.player2_type = player2_type
         self.num_simulations = num_simulations
         self.action_history = []
 
@@ -142,7 +145,7 @@ class HumanVsAI:
           a5,a4 b1b  (a5からa4へ移動、b1に黒タイルを配置)
           c5,c4      (c5からc4へ移動、タイル配置なし)
         """
-        print(f"\nあなたの番です (プレイヤー{self.human_player})")
+        print(f"\nあなたの番です (プレイヤー{self.game.current_player})")
         print("入力形式: <移動前>,<移動後> <配置座標><タイルカラー>")
         print("例: b1,b2 b3g (b1→b2へ移動、b3にグレータイル配置)")
         print("    c5,c4 (タイル配置なし)")
@@ -279,7 +282,7 @@ class HumanVsAI:
                 raise
 
     def get_random_action(self):
-        """ランダムな行動を取得（デバッグ用）"""
+        """ランダムな行動を取得"""
         import random
 
         valid_actions = self.game.get_all_legal_actions()
@@ -288,13 +291,132 @@ class HumanVsAI:
             return None
 
         action = random.choice(valid_actions)
-        logger.debug(f"ランダムに選択された行動: {action}")
+
+        # アクションを解釈して表示
+        move_idx, tile_idx = decode_action(action)
+        from_idx = move_idx // 25
+        to_idx = move_idx % 25
+        fx, fy = from_idx % 5, from_idx // 5
+        tx, ty = to_idx % 5, to_idx // 5
+
+        from_pos = self.format_position(fx, fy)
+        to_pos = self.format_position(tx, ty)
+        print(f"ランダムの行動: {from_pos},{to_pos}", end="")
+
+        if tile_idx > 0:
+            if tile_idx <= 25:
+                tile_color = "b"
+                tile_type_jp = "黒タイル"
+                idx = tile_idx - 1
+            else:
+                tile_color = "g"
+                tile_type_jp = "グレータイル"
+                idx = tile_idx - 26
+
+            tile_x, tile_y = idx % 5, idx // 5
+            tile_pos = self.format_position(tile_x, tile_y)
+            print(f" {tile_pos}{tile_color} ({tile_type_jp})", end="")
+
+        print()
+
         self.action_history.append((action, self.game.current_player, None))
         return action
 
+    def get_rule_based_action(self):
+        """ルールベースの行動を取得（シンプルな戦略）
+
+        戦略:
+        1. 相手のゴールライン近くに駒があれば前進を妨害
+        2. 自分の駒をゴールに向けて前進
+        3. 可能なら黒タイルを相手の進路に配置
+        """
+        import random
+
+        valid_actions = self.game.get_all_legal_actions()
+        if not valid_actions:
+            logger.error("有効なアクションがありません")
+            return None
+
+        best_action = None
+        best_score = -1000
+
+        current_player = self.game.current_player
+        target_row = 0 if current_player == P1 else 4  # P1はy=0、P2はy=4を目指す
+        opponent_target_row = 4 if current_player == P1 else 0
+
+        for action in valid_actions:
+            score = 0
+            move_idx, tile_idx = decode_action(action)
+
+            from_idx = move_idx // 25
+            to_idx = move_idx % 25
+            fx, fy = from_idx % 5, from_idx // 5
+            tx, ty = to_idx % 5, to_idx // 5
+
+            # ゴールに近づく移動を高評価
+            if current_player == P1:
+                progress = fy - ty  # y座標が減るほど良い
+            else:
+                progress = ty - fy  # y座標が増るほど良い
+            score += progress * 10
+
+            # ゴールラインに到達する手は最優先
+            if ty == target_row:
+                score += 100
+
+            # 相手の駒を妨害する位置への移動
+            opponent_pieces = self.game.pieces == OPPONENT[current_player]
+            if opponent_pieces[opponent_target_row].any():
+                # 相手のゴールライン近くに駒がある場合、妨害を優先
+                score += 20
+
+            # タイル配置のボーナス
+            if tile_idx > 0:
+                score += 5  # タイルを配置する手を少し優先
+
+                if tile_idx <= 25:  # 黒タイル
+                    score += 3  # 黒タイルは少し優先
+
+            # ランダム性を加える
+            score += random.random()
+
+            if score > best_score:
+                best_score = score
+                best_action = action
+
+        # アクションを解釈して表示
+        move_idx, tile_idx = decode_action(best_action)
+        from_idx = move_idx // 25
+        to_idx = move_idx % 25
+        fx, fy = from_idx % 5, from_idx // 5
+        tx, ty = to_idx % 5, to_idx // 5
+
+        from_pos = self.format_position(fx, fy)
+        to_pos = self.format_position(tx, ty)
+        print(f"ルールベースの行動: {from_pos},{to_pos}", end="")
+
+        if tile_idx > 0:
+            if tile_idx <= 25:
+                tile_color = "b"
+                tile_type_jp = "黒タイル"
+                idx = tile_idx - 1
+            else:
+                tile_color = "g"
+                tile_type_jp = "グレータイル"
+                idx = tile_idx - 26
+
+            tile_x, tile_y = idx % 5, idx // 5
+            tile_pos = self.format_position(tile_x, tile_y)
+            print(f" {tile_pos}{tile_color} ({tile_type_jp})", end="")
+
+        print(f" (スコア: {best_score:.2f})")
+
+        self.action_history.append((best_action, self.game.current_player, best_score))
+        return best_action
+
     def get_ai_action(self):
         """AIの行動を取得"""
-        print(f"\nAIの思考中... (プレイヤー{self.ai_player})")
+        print(f"\nAIの思考中... (プレイヤー{self.game.current_player})")
 
         # MCTS実行
         policy, values = self.mcts.search(self.game, self.num_simulations)
@@ -338,23 +460,32 @@ class HumanVsAI:
         self.action_history.append((action, self.game.current_player, value))
         return action
 
+    def get_action_for_player(self, player):
+        """指定されたプレイヤーの行動を取得"""
+        player_type = self.player1_type if player == P1 else self.player2_type
+
+        if player_type == "human":
+            return self.get_human_action()
+        elif player_type == "ai":
+            return self.get_ai_action()
+        elif player_type == "random":
+            return self.get_random_action()
+        elif player_type == "rule":
+            return self.get_rule_based_action()
+        else:
+            logger.error(f"不明なプレイヤータイプ: {player_type}")
+            return None
+
     def play(self):
         """ゲームをプレイ"""
         logger.info(
-            f"ゲーム開始: 人間=プレイヤー{self.human_player}, AI=プレイヤー{self.ai_player}"
+            f"ゲーム開始: プレイヤー1={self.player1_type}, プレイヤー2={self.player2_type}"
         )
 
         self.display_board()
 
         while not self.game.game_over:
-            if self.game.current_player == self.human_player:
-                # 人間のターン
-                # action = self.get_random_action()
-                action = self.get_human_action()
-                # action = self.get_ai_action()
-            else:
-                # AIのターン
-                action = self.get_ai_action()
+            action = self.get_action_for_player(self.game.current_player)
 
             if action is None:
                 logger.error("無効なアクションです")
@@ -375,10 +506,10 @@ class HumanVsAI:
 
         if self.game.winner == 0:
             print("引き分けです")
-        elif self.game.winner == self.human_player:
-            print("🎉 あなたの勝利です！")
+        elif self.game.winner == P1:
+            print(f"🎉 プレイヤー1 ({self.player1_type}) の勝利です！")
         else:
-            print("😢 AIの勝利です")
+            print(f"🎉 プレイヤー2 ({self.player2_type}) の勝利です！")
 
         print(f"総手数: {self.game.move_count}")
         print("=" * 50)
@@ -431,11 +562,18 @@ def main():
         help="MCTSのシミュレーション回数 (デフォルト: 100)",
     )
     parser.add_argument(
-        "--player",
-        type=int,
-        choices=[1, 2],
-        default=1,
-        help="人間が操作するプレイヤー (1 or 2, デフォルト: 1)",
+        "--player1",
+        type=str,
+        choices=["human", "ai", "random", "rule"],
+        default="human",
+        help="プレイヤー1のタイプ (human/ai/random/rule, デフォルト: human)",
+    )
+    parser.add_argument(
+        "--player2",
+        type=str,
+        choices=["human", "ai", "random", "rule"],
+        default="ai",
+        help="プレイヤー2のタイプ (human/ai/random/rule, デフォルト: ai)",
     )
 
     args = parser.parse_args()
@@ -447,7 +585,8 @@ def main():
     game = HumanVsAI(
         model_path=args.model,
         num_simulations=args.simulations,
-        human_player=args.player,
+        player1_type=args.player1,
+        player2_type=args.player2,
     )
 
     try:

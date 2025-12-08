@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
 
-from contrast_game import ContrastGame
+from contrast_game import P2, ContrastGame, flip_action
 
 # ★追加: 評価モジュールのインポート
 from elo_evaluator import EloEvaluator
@@ -76,12 +76,19 @@ class ReplayBuffer:
             m_target = np.zeros(625, dtype=np.float32)
             t_target = np.zeros(51, dtype=np.float32)
 
-            for action_hash, prob in sample.mcts_policy.items():
-                # Hash -> (Move, Tile)
-                m_idx = action_hash // 51
-                t_idx = action_hash % 51
+            # ★修正箇所: P2の場合は行動を反転(flip)させてからターゲットにする
+            should_flip = sample.player == P2
 
-                # 確率を加算 (周辺化)
+            for action_hash, prob in sample.mcts_policy.items():
+                # ネットワークが学習すべきは「反転された盤面に対する、反転された行動」
+                if should_flip:
+                    target_hash = flip_action(action_hash)
+                else:
+                    target_hash = action_hash
+
+                m_idx = target_hash // 51
+                t_idx = target_hash % 51
+
                 m_target[m_idx] += prob
                 t_target[t_idx] += prob
 
@@ -118,7 +125,7 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     while not done:
         # MCTS実行
         # mcts_policy: {action_hash: prob}
-        mcts_policy, action_values = mcts.search(game, num_mcts_simulations)
+        mcts_policy, _ = mcts.search(game, num_mcts_simulations)
 
         # 強制終了判定
         if step >= MAX_STEPS:
