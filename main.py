@@ -150,12 +150,6 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
         # mcts_policy: {action_hash: prob}
         mcts_policy, _ = mcts.search(game, num_mcts_simulations)
 
-        # 強制終了判定
-        if step >= MAX_STEPS:
-            done = True
-            winner = 0  # 引き分け扱い
-            break
-
         # 温度パラメータの制御 (config.pyから)
         # 序盤はランダム性を残し、中盤以降はGreedyに
         actions = list(mcts_policy.keys())
@@ -200,9 +194,9 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
             sample.reward = 1.0 if sample.player == winner else -1.0
 
     if winner == 0:
-        logger.info(f"Selfplay result: DRAW (Step {step})")
+        print(f"Selfplay result: DRAW (Step {step})")
     else:
-        logger.info(f"Selfplay result: WIN P{winner} (Step {step})")
+        print(f"Selfplay result: WIN P{winner} (Step {step})")
 
     return record
 
@@ -313,7 +307,6 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
                     f"Tile={tile_loss.item():.4f}) | "
                     f"LR={current_lr:.6f} | Buffer={len(replay)}/{BUFFER_SIZE}"
                 )
-                tqdm.write(log_msg)
                 logger.info(log_msg)
 
             # ★変更: 非同期評価ロジック

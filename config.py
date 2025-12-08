@@ -73,7 +73,7 @@ class TrainingConfig:
     NUM_PARALLEL_SELFPLAY: int = max(1, NUM_CPUS - 2)
 
     # バッチとバッファ
-    BATCH_SIZE: int = 1024
+    BATCH_SIZE: int = 4096
     BUFFER_SIZE: int = 20_000
 
     # 最適化
@@ -83,7 +83,7 @@ class TrainingConfig:
     LR_GAMMA: float = 0.5  # 学習率の減衰率
 
     # 学習ステップ
-    MAX_STEPS: int = 50  # 1ゲームあたりの最大手数（引き分け防止）
+    MAX_STEPS: int = 150  # 1ゲームあたりの最大手数（引き分け防止）
     MAX_EPOCH: int = MAX_STEPS * 10_000  # 総学習ステップ数
 
     # ログとチェックポイント
@@ -97,7 +97,7 @@ class EvaluationConfig:
     """モデル評価の設定"""
 
     EVAL_INTERVAL: int = 1000  # 評価を実行する間隔（学習ステップ数）
-    EVAL_NUM_GAMES: int = 500  # 評価時の対戦回数
+    EVAL_NUM_GAMES: int = 50  # 評価時の対戦回数（500→50に削減）
     EVAL_MCTS_SIMS: int = 50  # 評価時のMCTSシミュレーション回数
 
     BASELINE_ELO: int = 1000  # ベースラインAIの初期ELO

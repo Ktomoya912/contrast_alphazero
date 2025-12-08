@@ -91,6 +91,10 @@ class ContrastGame:
         # 高速化のため、dictではなくtuple(pieces, tiles, tile_counts)を保存
         self.history: deque = deque(maxlen=HISTORY_SIZE)
 
+        # 盤面繰り返し判定用（50手以降の盤面ハッシュを記録）
+        self.position_history: dict = {}  # {board_hash: count}
+        self.repetition_threshold = 10  # 同じ盤面が10回出現したら引き分け
+
         self.setup_initial_position()
 
     def setup_initial_position(self) -> None:
@@ -330,6 +334,18 @@ class ContrastGame:
         self.move_count += 1
         self._save_history()
 
+        # 盤面繰り返し判定（50手以降のみ）
+        if not self.game_over and self.move_count >= 50:
+            board_hash = self._get_board_hash()
+            self.position_history[board_hash] = (
+                self.position_history.get(board_hash, 0) + 1
+            )
+
+            if self.position_history[board_hash] >= self.repetition_threshold:
+                # 同じ盤面が規定回数繰り返されたら引き分け
+                self.game_over = True
+                self.winner = 0
+
         return self.game_over, self.winner
 
     def _check_win_fast(self) -> None:
@@ -344,6 +360,16 @@ class ContrastGame:
         elif np.any(self.pieces[4, :] == P2):
             self.game_over = True
             self.winner = P2
+
+    def _get_board_hash(self) -> int:
+        """盤面のハッシュ値を計算（繰り返し判定用）
+
+        Returns:
+            盤面状態を表すハッシュ値
+        """
+        # pieces, tiles, current_playerを組み合わせてハッシュ化
+        # tobytes()は高速で、同じ配列なら同じバイト列を返す
+        return hash((self.pieces.tobytes(), self.tiles.tobytes(), self.current_player))
 
     # --- Encoding ---
 

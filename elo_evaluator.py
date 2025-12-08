@@ -56,10 +56,12 @@ class EloEvaluator:
         Returns:
             (elo, win_rate): 更新後のELOと勝率
         """
-        logger.info(
+        start_msg = (
             f"Starting evaluation at step {step_count}: "
             f"{num_games} games, {mcts_simulations} MCTS sims"
         )
+        logger.info(start_msg)
+        print(start_msg)  # 即座に出力
 
         # ウエイトのロード
         self.model.load_state_dict(model_weights)
@@ -70,6 +72,13 @@ class EloEvaluator:
 
         # 対戦ループ
         for i in range(num_games):
+            # 進捗ログ（10ゲームごと）
+            if (i + 1) % 10 == 0:
+                progress_msg = (
+                    f"Evaluation progress: {i + 1}/{num_games} games completed"
+                )
+                logger.info(progress_msg)
+                print(progress_msg)
             game = ContrastGame()
             mcts = MCTS(network=self.model, device=self.device)
 
@@ -85,6 +94,7 @@ class EloEvaluator:
 
             step = 0
             max_steps = game_config.MAX_STEPS_PER_GAME
+
             while not game.game_over and step < max_steps:
                 if game.current_player == model_player:
                     policy, _ = mcts.search(game, mcts_simulations)

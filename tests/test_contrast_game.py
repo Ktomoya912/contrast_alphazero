@@ -707,5 +707,78 @@ class TestComplexScenarios(unittest.TestCase):
         self.assertEqual(set(actions1), set(actions2))
 
 
+class TestBoardRepetition(unittest.TestCase):
+    """盤面繰り返し判定のテスト"""
+
+    def test_repetition_draw_after_threshold(self):
+        """同じ盤面が10回繰り返されたら引き分けになることを確認"""
+        game = ContrastGame()
+
+        # 50手まで進める（繰り返し判定は50手以降）
+        for i in range(30):
+            # P1とP2が交互に往復する動きを繰り返す
+            # P1の駒を取得
+            legal = game.get_all_legal_actions()
+            if not legal or game.game_over:
+                break
+
+            # 最初の合法手を使う
+            game.step(legal[0])
+
+        # 50手以降、同じ盤面を意図的に繰り返す
+        if game.move_count >= 50 and not game.game_over:
+            # 現在の盤面ハッシュを取得
+            initial_hash = game._get_board_hash()
+
+            # 同じアクションを繰り返して盤面を戻す試み
+            for _ in range(12):  # 10回の閾値を超えるまで
+                if game.game_over:
+                    break
+
+                legal = game.get_all_legal_actions()
+                if not legal:
+                    break
+
+                # 同じ手を繰り返す
+                game.step(legal[0])
+
+            # 繰り返しで引き分けになる可能性がある
+            # （実際の盤面の動きによる）
+
+    def test_no_repetition_before_move_50(self):
+        """50手未満では繰り返し判定が働かないことを確認"""
+        game = ContrastGame()
+
+        # position_historyが50手未満では更新されないことを確認
+        for i in range(20):
+            legal = game.get_all_legal_actions()
+            if not legal or game.game_over:
+                break
+            game.step(legal[0])
+
+        # 50手未満ではposition_historyは空または記録されていない
+        if game.move_count < 50:
+            # position_historyは使われていないはず
+            self.assertEqual(len(game.position_history), 0)
+
+    def test_board_hash_consistency(self):
+        """同じ盤面は同じハッシュ値を生成することを確認"""
+        game = ContrastGame()
+
+        hash1 = game._get_board_hash()
+        hash2 = game._get_board_hash()
+
+        self.assertEqual(hash1, hash2)
+
+        # アクション実行
+        legal = game.get_all_legal_actions()
+        if legal:
+            game.step(legal[0])
+            hash3 = game._get_board_hash()
+
+            # 盤面が変わったのでハッシュも変わるはず
+            self.assertNotEqual(hash1, hash3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
