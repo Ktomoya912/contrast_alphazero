@@ -63,14 +63,16 @@ class HumanVsAI:
         # タイルの表示
         tile_symbols = {TILE_WHITE: "□", TILE_BLACK: "■", TILE_GRAY: "▦"}
 
-        # 列番号
+        # 列ラベル (a-e)
         print("   ", end="")
         for x in range(5):
-            print(f" {x} ", end="")
+            print(f" {chr(ord('a') + x)} ", end="")
         print()
 
+        # 行は5から1へ（下から上）
         for y in range(5):
-            print(f" {y} ", end="")
+            row_label = 5 - y  # 5, 4, 3, 2, 1
+            print(f" {row_label} ", end="")
             for x in range(5):
                 piece = self.game.pieces[y, x]
                 tile = self.game.tiles[y, x]
@@ -95,132 +97,186 @@ class HumanVsAI:
         print(f"\n手数: {self.game.move_count}")
         print("=" * 50)
 
+    def parse_position(self, pos_str):
+        """位置文字列(例: 'b3')を内部座標(x, y)に変換
+
+        Args:
+            pos_str: 'a1'-'e5'形式の文字列
+        Returns:
+            (x, y): 内部座標 (0-4, 0-4)
+        """
+        if len(pos_str) != 2:
+            raise ValueError("座標は2文字で指定してください (例: b3)")
+
+        col = pos_str[0].lower()
+        row = pos_str[1]
+
+        if col not in "abcde":
+            raise ValueError("列はa-eで指定してください")
+        if row not in "12345":
+            raise ValueError("行は1-5で指定してください")
+
+        x = ord(col) - ord("a")  # a=0, b=1, ..., e=4
+        y = 5 - int(row)  # 1=4, 2=3, 3=2, 4=1, 5=0 (下から上)
+
+        return x, y
+
+    def format_position(self, x, y):
+        """内部座標(x, y)を位置文字列に変換
+
+        Args:
+            x, y: 内部座標 (0-4, 0-4)
+        Returns:
+            'a1'-'e5'形式の文字列
+        """
+        col = chr(ord("a") + x)
+        row = 5 - y
+        return f"{col}{row}"
+
     def get_human_action(self):
-        """人間から行動を入力"""
+        """人間から行動を入力
+
+        入力形式: <移動前>,<移動後> <配置座標><タイルカラー>
+        例:
+          b1,b2 b3g  (b1からb2へ移動、b3にグレータイルを配置)
+          a5,a4 b1b  (a5からa4へ移動、b1に黒タイルを配置)
+          c5,c4      (c5からc4へ移動、タイル配置なし)
+        """
         print(f"\nあなたの番です (プレイヤー{self.human_player})")
+        print("入力形式: <移動前>,<移動後> <配置座標><タイルカラー>")
+        print("例: b1,b2 b3g (b1→b2へ移動、b3にグレータイル配置)")
+        print("    c5,c4 (タイル配置なし)")
 
-        # 移動する駒を選択
-        while True:
-            try:
-                from_input = input("移動する駒の座標を入力 (例: 2,4): ").strip()
-                fx, fy = map(int, from_input.split(","))
-
-                if not (0 <= fx < 5 and 0 <= fy < 5):
-                    print("エラー: 座標は0-4の範囲で入力してください")
-                    continue
-
-                if self.game.pieces[fy, fx] != self.game.current_player:
-                    print("エラー: 自分の駒を選択してください")
-                    continue
-
-                # 有効な移動先を表示
-                valid_moves = self.game.get_valid_moves(fx, fy)
-                if not valid_moves:
-                    print("エラー: この駒は移動できません")
-                    continue
-
-                print(f"移動可能な場所: {valid_moves}")
-                break
-
-            except (ValueError, KeyboardInterrupt):
-                print("エラー: 正しい形式で入力してください (例: 2,4)")
-                continue
-
-        # 移動先を選択
-        while True:
-            try:
-                to_input = input("移動先の座標を入力 (例: 2,3): ").strip()
-                tx, ty = map(int, to_input.split(","))
-
-                if (tx, ty) not in valid_moves:
-                    print(f"エラー: 移動できない場所です。有効な移動先: {valid_moves}")
-                    continue
-
-                break
-
-            except (ValueError, KeyboardInterrupt):
-                print("エラー: 正しい形式で入力してください")
-                continue
-
-        # タイル配置を選択
         p_idx = self.game.current_player - 1
         has_black = self.game.tile_counts[p_idx, 0] > 0
         has_gray = self.game.tile_counts[p_idx, 1] > 0
+        print(
+            f"持ちタイル: 黒(b)={self.game.tile_counts[p_idx, 0]}, グレー(g)={self.game.tile_counts[p_idx, 1]}"
+        )
 
-        tile_type = 0  # デフォルトはタイルなし
-        tile_x, tile_y = 0, 0
+        while True:
+            try:
+                user_input = input("\n行動を入力: ").strip()
 
-        if has_black or has_gray:
-            while True:
-                try:
-                    tile_choice = input(
-                        f"タイルを配置しますか? (0:なし, 1:黒タイル[残{self.game.tile_counts[p_idx, 0]}], 2:グレータイル[残{self.game.tile_counts[p_idx, 1]}]): "
-                    ).strip()
-
-                    if tile_choice == "0":
-                        break
-                    elif tile_choice == "1" and has_black:
-                        tile_type = TILE_BLACK
-                        break
-                    elif tile_choice == "2" and has_gray:
-                        tile_type = TILE_GRAY
-                        break
-                    else:
-                        print("エラー: 無効な選択です")
-                        continue
-
-                except (ValueError, KeyboardInterrupt):
-                    print("エラー: 0, 1, 2 のいずれかを入力してください")
+                if not user_input:
+                    print("エラー: 入力が空です")
                     continue
 
-            if tile_type != 0:
-                while True:
-                    try:
-                        tile_input = input(
-                            "タイル配置先の座標を入力 (例: 2,2): "
-                        ).strip()
-                        tile_x, tile_y = map(int, tile_input.split(","))
+                # スペースで分割: [移動部分, タイル部分(optional)]
+                parts = user_input.split()
 
-                        if not (0 <= tile_x < 5 and 0 <= tile_y < 5):
-                            print("エラー: 座標は0-4の範囲で入力してください")
-                            continue
+                if len(parts) == 0:
+                    print("エラー: 入力が空です")
+                    continue
 
-                        # 白タイルでない場所には配置できない
-                        if self.game.tiles[tile_y, tile_x] != TILE_WHITE:
-                            print("エラー: 白タイル以外の場所には配置できません")
-                            continue
+                # 移動部分をパース
+                move_part = parts[0]
+                if "," not in move_part:
+                    print(
+                        "エラー: 移動は'<移動前>,<移動後>'の形式で入力してください (例: b1,b2)"
+                    )
+                    continue
 
-                        # 移動先には配置できない
-                        if tile_x == tx and tile_y == ty:
-                            print("エラー: 移動先には配置できません")
-                            continue
+                from_pos, to_pos = move_part.split(",")
 
-                        # 移動元以外にコマがある場所には配置できない
-                        if self.game.pieces[tile_y, tile_x] != 0 and not (
-                            tile_x == fx and tile_y == fy
-                        ):
-                            print("エラー: コマがある場所には配置できません")
-                            continue
+                # 座標変換
+                fx, fy = self.parse_position(from_pos)
+                tx, ty = self.parse_position(to_pos)
 
-                        break
+                # 移動元の駒チェック
+                if self.game.pieces[fy, fx] != self.game.current_player:
+                    print(f"エラー: {from_pos}に自分の駒がありません")
+                    continue
 
-                    except (ValueError, KeyboardInterrupt):
-                        print("エラー: 正しい形式で入力してください")
+                # 移動先の有効性チェック
+                valid_moves = self.game.get_valid_moves(fx, fy)
+                if not valid_moves:
+                    print(f"エラー: {from_pos}の駒は移動できません")
+                    continue
+
+                if (tx, ty) not in valid_moves:
+                    # 移動可能な場所を新形式で表示
+                    valid_pos_str = [
+                        self.format_position(vx, vy) for vx, vy in valid_moves
+                    ]
+                    print(
+                        f"エラー: {to_pos}には移動できません。移動可能: {', '.join(valid_pos_str)}"
+                    )
+                    continue
+
+                # タイル配置部分をパース
+                tile_type = 0
+                tile_x, tile_y = 0, 0
+
+                if len(parts) >= 2:
+                    tile_part = parts[1]
+
+                    if len(tile_part) < 3:
+                        print(
+                            "エラー: タイル配置は'<座標><色>'の形式で入力してください (例: b3g)"
+                        )
                         continue
 
-        # アクションハッシュを生成
-        move_idx = (fy * 5 + fx) * 25 + (ty * 5 + tx)
+                    tile_pos = tile_part[:2]
+                    tile_color = tile_part[2].lower()
 
-        if tile_type == 0:
-            tile_idx = 0
-        elif tile_type == TILE_BLACK:
-            tile_idx = 1 + (tile_y * 5 + tile_x)
-        else:  # TILE_GRAY
-            tile_idx = 26 + (tile_y * 5 + tile_x)
+                    if tile_color not in ["b", "g"]:
+                        print(
+                            "エラー: タイルの色はb(黒)またはg(グレー)を指定してください"
+                        )
+                        continue
 
-        action_hash = move_idx * 51 + tile_idx
-        self.action_history.append((action_hash, self.game.current_player, None))
-        return action_hash
+                    # タイルの色を決定
+                    if tile_color == "b":
+                        if not has_black:
+                            print("エラー: 黒タイルの持ち駒がありません")
+                            continue
+                        tile_type = TILE_BLACK
+                    else:  # 'g'
+                        if not has_gray:
+                            print("エラー: グレータイルの持ち駒がありません")
+                            continue
+                        tile_type = TILE_GRAY
+
+                    # タイル配置座標を変換
+                    tile_x, tile_y = self.parse_position(tile_pos)
+
+                    # タイル配置の有効性チェック
+                    if self.game.tiles[tile_y, tile_x] != TILE_WHITE:
+                        print(f"エラー: {tile_pos}は白タイルではありません")
+                        continue
+
+                    if tile_x == tx and tile_y == ty:
+                        print("エラー: 移動先にはタイルを配置できません")
+                        continue
+
+                    if self.game.pieces[tile_y, tile_x] != 0 and not (
+                        tile_x == fx and tile_y == fy
+                    ):
+                        print(f"エラー: {tile_pos}には駒があります（移動元以外）")
+                        continue
+
+                # アクションハッシュを生成
+                move_idx = (fy * 5 + fx) * 25 + (ty * 5 + tx)
+
+                if tile_type == 0:
+                    tile_idx = 0
+                elif tile_type == TILE_BLACK:
+                    tile_idx = 1 + (tile_y * 5 + tile_x)
+                else:  # TILE_GRAY
+                    tile_idx = 26 + (tile_y * 5 + tile_x)
+
+                action_hash = move_idx * 51 + tile_idx
+                self.action_history.append(
+                    (action_hash, self.game.current_player, None)
+                )
+                return action_hash
+
+            except ValueError as e:
+                print(f"エラー: {e}")
+                continue
+            except KeyboardInterrupt:
+                raise
 
     def get_random_action(self):
         """ランダムな行動を取得（デバッグ用）"""
@@ -259,18 +315,23 @@ class HumanVsAI:
         fx, fy = from_idx % 5, from_idx // 5
         tx, ty = to_idx % 5, to_idx // 5
 
-        print(f"AIの行動: ({fx},{fy}) → ({tx},{ty})", end="")
+        from_pos = self.format_position(fx, fy)
+        to_pos = self.format_position(tx, ty)
+        print(f"AIの行動: {from_pos},{to_pos}", end="")
 
         if tile_idx > 0:
             if tile_idx <= 25:
-                tile_type = "黒タイル"
+                tile_color = "b"
+                tile_type_jp = "黒タイル"
                 idx = tile_idx - 1
             else:
-                tile_type = "グレータイル"
+                tile_color = "g"
+                tile_type_jp = "グレータイル"
                 idx = tile_idx - 26
 
             tile_x, tile_y = idx % 5, idx // 5
-            print(f" + {tile_type}を({tile_x},{tile_y})に配置", end="")
+            tile_pos = self.format_position(tile_x, tile_y)
+            print(f" {tile_pos}{tile_color} ({tile_type_jp})", end="")
 
         print(f" (評価値: {value:.3f})")
 
@@ -329,19 +390,25 @@ class HumanVsAI:
             fx, fy = from_idx % 5, from_idx // 5
             tx, ty = to_idx % 5, to_idx // 5
 
+            from_pos = self.format_position(fx, fy)
+            to_pos = self.format_position(tx, ty)
             action_str = (
-                f"手数 {idx + 1}: プレイヤー{player} の行動: ({fx},{fy}) → ({tx},{ty})"
+                f"手数 {idx + 1}: プレイヤー{player} の行動: {from_pos},{to_pos}"
             )
+
             if tile_idx > 0:
                 if tile_idx <= 25:
-                    tile_type = "黒タイル"
+                    tile_color = "b"
+                    tile_type_jp = "黒タイル"
                     idx_tile = tile_idx - 1
                 else:
-                    tile_type = "グレータイル"
+                    tile_color = "g"
+                    tile_type_jp = "グレータイル"
                     idx_tile = tile_idx - 26
 
                 tile_x, tile_y = idx_tile % 5, idx_tile // 5
-                action_str += f" + {tile_type}を({tile_x},{tile_y})に配置"
+                tile_pos = self.format_position(tile_x, tile_y)
+                action_str += f" {tile_pos}{tile_color} ({tile_type_jp})"
 
             if value is not None:
                 action_str += f" | 評価値: {value:.3f}"

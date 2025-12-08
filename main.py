@@ -24,14 +24,14 @@ from model import ContrastDualPolicyNet
 logger = get_logger(__name__)
 
 # 定数定義
-NUM_CPUS = os.cpu_count() or 2
+NUM_CPUS = min(os.cpu_count() or 2, 2)
 NUM_GPUS = 1 if torch.cuda.is_available() else 0
 BATCH_SIZE = 128
 BUFFER_SIZE = 20000
 LEARNING_RATE = 0.2
 WEIGHT_DECAY = 1e-4
 MAX_STEPS = 50  # ★変更: 150→50 無意味な往復を防ぐ
-MAX_EPOCH = 25_000
+MAX_EPOCH = MAX_STEPS * 10000
 # ★追加: 評価設定
 EVAL_INTERVAL = 1000  # 何ステップごとに評価するか
 EVAL_NUM_GAMES = 500  # 評価時の対戦数
@@ -111,7 +111,7 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     game = ContrastGame()
     mcts = MCTS(network=model, device=torch.device("cpu"), alpha=dirichlet_alpha)
 
-    record = []
+    record: list[Sample] = []
     done = False
     step = 0
 
@@ -166,7 +166,7 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     for sample in record:
         if winner == 0:
             # 引き分けにはペナルティを与える（決着をつけることを促す）
-            sample.reward = -0.3
+            sample.reward = 0.0
         else:
             # 自分の手番で勝ったなら+1, 負けたなら-1
             sample.reward = 1.0 if sample.player == winner else -1.0
@@ -174,7 +174,6 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     return record
 
 
-# ★変更: 並列数を「2」に変更推奨 (4コアマシンの場合: 2 workers + 1 evaluator + 1 trainer)
 def main(n_parallel_selfplay=2, num_mcts_simulations=50):
     ray.init(
         ignore_reinit_error=True,
