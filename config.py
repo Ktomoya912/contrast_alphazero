@@ -40,8 +40,6 @@ class MCTSConfig:
 
     # 温度パラメータの設定
     TEMPERATURE_THRESHOLD: int = 30  # この手数まではランダム性を残す
-    TEMPERATURE_EARLY: float = 1.0  # 序盤の温度
-    TEMPERATURE_LATE: float = 0.0  # 中盤以降の温度（greedy）
 
 
 # ===== ニューラルネットワーク設定 =====
@@ -69,8 +67,6 @@ class TrainingConfig:
 
     # 並列処理
     NUM_CPUS: int = os.cpu_count() or 2
-    NUM_GPUS: int = 1 if torch.cuda.is_available() else 0
-    NUM_PARALLEL_SELFPLAY: int = max(1, NUM_CPUS - 2)
 
     # バッチとバッファ
     BATCH_SIZE: int = 1024
@@ -90,18 +86,27 @@ class TrainingConfig:
     LOG_INTERVAL: int = 50  # ログ出力の間隔
     SAVE_INTERVAL: int = 1000  # モデル保存の間隔
 
+    def __str__(self) -> str:
+        return (
+            f"{self.BATCH_SIZE=}, {self.BUFFER_SIZE=}, {self.LEARNING_RATE=}, {self.WEIGHT_DECAY=}"
+            f", {self.LR_STEP_SIZE=}, {self.LR_GAMMA=}, {self.MAX_EPOCH=}"
+        )
+
 
 # ===== 評価設定 =====
 @dataclass
 class EvaluationConfig:
     """モデル評価の設定"""
 
-    EVAL_INTERVAL: int = 1000  # 評価を実行する間隔（学習ステップ数）
-    EVAL_NUM_GAMES: int = 50  # 評価時の対戦回数（500→50に削減）
+    EVAL_INTERVAL: int = 100  # 評価を実行する間隔（学習ステップ数）
+    EVAL_NUM_GAMES: int = 10  # 評価時の対戦回数
     EVAL_MCTS_SIMS: int = 50  # 評価時のMCTSシミュレーション回数
 
     BASELINE_ELO: int = 1000  # ベースラインAIの初期ELO
     K_FACTOR: int = 32  # ELO計算のK係数
+
+    def __str__(self) -> str:
+        return f"{self.EVAL_NUM_GAMES=}, {self.EVAL_MCTS_SIMS=}, {self.BASELINE_ELO=}, {self.K_FACTOR=}"
 
 
 # ===== パス設定 =====

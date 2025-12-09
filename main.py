@@ -9,7 +9,6 @@ from pathlib import Path
 import numpy as np
 import ray
 import torch
-import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
 
@@ -20,28 +19,12 @@ from config import (
     training_config,
 )
 from contrast_game import P2, ContrastGame, flip_action
-
-# ★追加: 評価モジュールのインポート
 from elo_evaluator import EloEvaluator
 from logger import get_logger, setup_logger
 from mcts import MCTS
-from model import ContrastDualPolicyNet
+from model import ContrastDualPolicyNet, loss_function
 
 logger = get_logger(__name__)
-
-# 定数定義 (config.pyから取得)
-NUM_CPUS = training_config.NUM_CPUS
-NUM_GPUS = training_config.NUM_GPUS
-BATCH_SIZE = training_config.BATCH_SIZE
-BUFFER_SIZE = training_config.BUFFER_SIZE
-LEARNING_RATE = training_config.LEARNING_RATE
-WEIGHT_DECAY = training_config.WEIGHT_DECAY
-MAX_STEPS = training_config.MAX_STEPS
-MAX_EPOCH = training_config.MAX_EPOCH
-# 評価設定 (config.pyから取得)
-EVAL_INTERVAL = evaluation_config.EVAL_INTERVAL
-EVAL_NUM_GAMES = evaluation_config.EVAL_NUM_GAMES
-EVAL_MCTS_SIMS = evaluation_config.EVAL_MCTS_SIMS
 
 
 @dataclass
@@ -53,8 +36,8 @@ class Sample:
 
 
 class ReplayBuffer:
-    def __init__(self, buffer_size):
-        self.buffer = deque(maxlen=buffer_size)
+    def __init__(self, buffer_size: int):
+        self.buffer: deque[Sample] = deque(maxlen=buffer_size)
 
     def add_record(self, record):
         self.buffer.extend(record)
@@ -157,7 +140,7 @@ def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
         # mcts_policy: {action_hash: prob}
         mcts_policy, values = mcts.search(game, num_mcts_simulations)
         # 強制終了判定
-        if step >= MAX_STEPS:
+        if step >= training_config.MAX_STEPS:
             done = True
             winner = 0  # 引き分け扱い
             break
@@ -239,13 +222,15 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
     logger.info(f"Training started on {device}")
     logger.info(
         f"Config: Parallel workers={n_parallel_selfplay}, "
-        f"MCTS sims={num_mcts_simulations}, Batch size={BATCH_SIZE}, "
-        f"Buffer size={BUFFER_SIZE}, LR={LEARNING_RATE}"
+        f"MCTS sims={num_mcts_simulations}, "
+        f"{training_config}"
     )
 
     network = ContrastDualPolicyNet().to(device)
     optimizer = optim.Adam(
-        network.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
+        network.parameters(),
+        lr=training_config.LEARNING_RATE,
+        weight_decay=training_config.WEIGHT_DECAY,
     )
     # 学習率スケジューラ (config.pyから設定を取得)
     scheduler = optim.lr_scheduler.StepLR(
@@ -261,16 +246,16 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
     current_weights_ref = ray.put(network.to("cpu").state_dict())
     network.to(device)
 
-    replay = ReplayBuffer(buffer_size=BUFFER_SIZE)
+    replay = ReplayBuffer(buffer_size=training_config.BUFFER_SIZE)
     work_in_progresses = [
         selfplay.remote(current_weights_ref, num_mcts_simulations, number)
         for number in range(n_parallel_selfplay)
     ]
 
     total_steps = 0
-    pbar = tqdm(total=MAX_EPOCH, desc="Training")
+    pbar = tqdm(total=training_config.MAX_EPOCH, desc="Training")
     number = -1
-    while total_steps < MAX_EPOCH:
+    while total_steps < training_config.MAX_EPOCH:
         finished, work_in_progresses = ray.wait(work_in_progresses, num_returns=1)
         replay.add_record(ray.get(finished[0]))
         number = (number + 1) % n_parallel_selfplay
@@ -278,8 +263,10 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
             selfplay.remote(current_weights_ref, num_mcts_simulations, number)
         )
 
-        if len(replay) > BATCH_SIZE:
-            states, m_targets, t_targets, v_targets = replay.get_minibatch(BATCH_SIZE)
+        if len(replay) > training_config.BATCH_SIZE:
+            states, m_targets, t_targets, v_targets = replay.get_minibatch(
+                training_config.BATCH_SIZE
+            )
             states = states.to(device)
             m_targets = m_targets.to(device)
             t_targets = t_targets.to(device)
@@ -288,21 +275,9 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
             optimizer.zero_grad()
             # 推論
             m_logits, t_logits, v_pred = network(states)
-            # 損失計算
-            # Value Loss: MSE
-            value_loss = F.mse_loss(v_pred, v_targets)
-
-            # Policy Loss: Cross Entropy
-            # PyTorchのCrossEntropyLossはTargetがクラスインデックスであることを期待するが、
-            # AlphaZeroはソフトターゲット(確率分布)を使うため、
-            # LogSoftmax + Sum(target * log_prob) の形式で計算する (KL Divergence相当)
-
-            m_log_probs = F.log_softmax(m_logits, dim=1)
-            t_log_probs = F.log_softmax(t_logits, dim=1)
-            move_loss = -torch.mean(torch.sum(m_targets * m_log_probs, dim=1))
-            tile_loss = -torch.mean(torch.sum(t_targets * t_log_probs, dim=1))
-
-            loss = value_loss + move_loss + tile_loss
+            loss, (v_loss, m_loss, t_loss) = loss_function(
+                m_logits, t_logits, v_pred, m_targets, t_targets, v_targets
+            )
             # バックプロパゲーション
             loss.backward()
             optimizer.step()
@@ -317,10 +292,11 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
                 # 詳細なメトリクスログ
                 log_msg = (
                     f"Step {total_steps}: Loss={loss.item():.4f} "
-                    f"(Value={value_loss.item():.4f}, "
-                    f"Move={move_loss.item():.4f}, "
-                    f"Tile={tile_loss.item():.4f}) | "
-                    f"LR={current_lr:.6f} | Buffer={len(replay)}/{BUFFER_SIZE}"
+                    f"(Value={v_loss:.4f}, "
+                    f"Move={m_loss:.4f}, "
+                    f"Tile={t_loss:.4f}) | "
+                    f"LR={current_lr:.6f} | "
+                    f"Buffer={len(replay)}/{training_config.BUFFER_SIZE}"
                 )
                 logger.info(log_msg)
 
@@ -342,12 +318,15 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
             # 新しい評価を投げる (インターバル経過 かつ 前の評価が終わっている場合)
             if (
                 total_steps > 0
-                and total_steps % EVAL_INTERVAL == 0
+                and total_steps % evaluation_config.EVAL_INTERVAL == 0
                 and evaluation_future is None
             ):
                 tqdm.write(f"Step {total_steps}: Starting async evaluation...")
                 evaluation_future = elo_evaluator.evaluate.remote(
-                    current_weights_ref, total_steps, EVAL_NUM_GAMES, EVAL_MCTS_SIMS
+                    current_weights_ref,
+                    total_steps,
+                    evaluation_config.EVAL_NUM_GAMES,
+                    evaluation_config.EVAL_MCTS_SIMS,
                 )
 
             total_steps += 1
@@ -375,6 +354,8 @@ if __name__ == "__main__":
     logger.info(f"Log file: {log_file}")
     logger.info("=" * 60)
 
-    # 並列selfplayワーカー数の決定（最小1を保証）
-    n_workers = max(1, NUM_CPUS - 2)
+    # 並列selfplayワーカー数の決定（メモリ制約を考慮）
+    # メモリ不足を防ぐため、CPUの半分程度に制限
+    n_workers = max(1, min(training_config.NUM_CPUS // 2, 4))
+    logger.info(f"Starting training with {n_workers} parallel selfplay workers")
     main(n_parallel_selfplay=n_workers)

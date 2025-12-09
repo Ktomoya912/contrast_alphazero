@@ -11,8 +11,6 @@ from mcts import MCTS
 from model import ContrastDualPolicyNet
 from players.rule_based import RuleBasedPlayer
 
-logger = get_logger(__name__)
-
 
 @ray.remote(num_cpus=1)
 class EloEvaluator:
@@ -68,7 +66,7 @@ class EloEvaluator:
             f"Starting evaluation at step {step_count}: "
             f"{num_games} games, {mcts_simulations} MCTS sims"
         )
-        logger.info(start_msg)
+        self.logger.info(start_msg)
         print(start_msg)  # 即座に出力
 
         # ウエイトのロード
@@ -85,8 +83,7 @@ class EloEvaluator:
                 progress_msg = (
                     f"Evaluation progress: {i + 1}/{num_games} games completed"
                 )
-                logger.info(progress_msg)
-                print(progress_msg)
+                self.logger.info(progress_msg)
             game = ContrastGame()
             mcts = MCTS(network=self.model, device=self.device)
 
@@ -107,14 +104,13 @@ class EloEvaluator:
                 if game.current_player == model_player:
                     policy, _ = mcts.search(game, mcts_simulations)
                     if not policy:
-                        logger.warning(f"Game {i + 1}: No valid policy for model")
+                        self.logger.warning(f"Game {i + 1}: No valid policy for model")
                         break
-                    action = max(policy, key=lambda x: policy[x])
                     action = max(policy, key=lambda x: policy[x])
                 else:
                     action = rb_bot.get_action(game)
                     if action is None:
-                        logger.warning(
+                        self.logger.warning(
                             f"Game {i + 1}: No valid action for rule-based AI"
                         )
                         break
