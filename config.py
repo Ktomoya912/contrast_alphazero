@@ -77,7 +77,7 @@ class TrainingConfig:
     BUFFER_SIZE: int = 20_000
 
     # 最適化
-    LEARNING_RATE: float = 0.2
+    LEARNING_RATE: float = 0.001
     WEIGHT_DECAY: float = 1e-4
     LR_STEP_SIZE: int = 50_000  # 学習率を減衰させるステップ間隔
     LR_GAMMA: float = 0.5  # 学習率の減衰率

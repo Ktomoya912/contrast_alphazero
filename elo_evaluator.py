@@ -29,6 +29,9 @@ class EloEvaluator:
         self.model = ContrastDualPolicyNet().to(self.device)
         self.model.eval()
 
+        self.save_path = Path("models")
+        self.save_path.mkdir(exist_ok=True)
+
     def evaluate(self, model_weights, step_count, num_games=10, mcts_simulations=50):
         """
         対戦を行いELOを更新し、モデルを保存する
@@ -98,7 +101,9 @@ class EloEvaluator:
         self.logger.info(log_msg)
 
         # モデルの保存 (評価プロセス側で行う)
-        save_path = f"models/model_step_{step_count}_elo_{int(self.agent_elo)}.pth"
+        save_path = (
+            self.save_path / f"model_step_{step_count}_elo_{int(self.agent_elo)}.pth"
+        )
         torch.save(model_weights, save_path)
 
         return self.agent_elo, win_rate

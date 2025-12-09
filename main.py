@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from tqdm import tqdm
 
-from contrast_game import ContrastGame
+from contrast_game import P2, ContrastGame, flip_action
 
 # ★追加: 評価モジュールのインポート
 from elo_evaluator import EloEvaluator
@@ -28,13 +28,13 @@ NUM_CPUS = os.cpu_count() or 2
 NUM_GPUS = 1 if torch.cuda.is_available() else 0
 BATCH_SIZE = 128
 BUFFER_SIZE = 20000
-LEARNING_RATE = 0.2
+LEARNING_RATE = 0.001
 WEIGHT_DECAY = 1e-4
-MAX_STEPS = 50  # ★変更: 150→50 無意味な往復を防ぐ
+MAX_STEPS = 150
 MAX_EPOCH = 25_000
 # ★追加: 評価設定
-EVAL_INTERVAL = 1000  # 何ステップごとに評価するか
-EVAL_NUM_GAMES = 500  # 評価時の対戦数
+EVAL_INTERVAL = 100  # 何ステップごとに評価するか
+EVAL_NUM_GAMES = 10  # 評価時の対戦数
 EVAL_MCTS_SIMS = 50  # 評価時のシミュレーション回数
 
 
@@ -76,10 +76,16 @@ class ReplayBuffer:
             m_target = np.zeros(625, dtype=np.float32)
             t_target = np.zeros(51, dtype=np.float32)
 
+            should_flip = sample.player == P2
+
             for action_hash, prob in sample.mcts_policy.items():
+                if should_flip:
+                    target_hash = flip_action(action_hash)
+                else:
+                    target_hash = action_hash
                 # Hash -> (Move, Tile)
-                m_idx = action_hash // 51
-                t_idx = action_hash % 51
+                m_idx = target_hash // 51
+                t_idx = target_hash % 51
 
                 # 確率を加算 (周辺化)
                 m_target[m_idx] += prob
@@ -103,7 +109,7 @@ def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
     """
     pid = os.getpid()
     log_filename = Path(__file__).parent / f"logs/proc/worker_selfplay_{index}.log"
-    setup_logger(log_level=logging.DEBUG, log_file=log_filename)
+    setup_logger(log_level=logging.DEBUG, log_file=log_filename, show_console=False)
     logger = logging.getLogger(__name__)
     logger.info(f"Worker process started. PID: {pid}")
     torch.set_num_threads(1)
@@ -141,7 +147,12 @@ def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
         else:
             # 温度 = 0 (最大確率の手を選択) - 中盤以降は最善手
             action = max(mcts_policy, key=lambda x: mcts_policy[x])
-        logger.debug(f"P{game.current_player}: {action=}")
+        action_prob = mcts_policy[action]
+        action_value = values.get(action, 0.0)  # valuesはMCTSのQ値
+        logger.debug(
+            f"P{game.current_player} Step{step}: action={action}, "
+            f"prob={action_prob:.4f}, value={action_value:.4f}"
+        )
         # 記録 (現在の状態、MCTSの分布、手番)
         # encode_stateは (90, 5, 5) を返す
         record.append(
@@ -164,6 +175,7 @@ def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
     else:
         result = "P2 Win"
     logger.info(f"Game finished: {result}, Steps: {step}")
+    print(f"Game finished: {result}, Steps: {step}")
 
     # 報酬の割り当て (Winner視点)
     # game.winner: P1(1) or P2(2) or Draw(0)
@@ -295,8 +307,6 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
 
 if __name__ == "__main__":
     # エントリーポイントでロギングを初期化
-    Path("logs").mkdir(exist_ok=True)
-    Path("models").mkdir(exist_ok=True)
     setup_logger(
         log_file=f"logs/training_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
     )

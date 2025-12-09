@@ -15,6 +15,7 @@ def setup_logger(
     log_file=None,
     log_format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     date_format="%Y-%m-%d %H:%M:%S",
+    show_console=True,
 ):
     """
     アプリケーション全体のロギング設定を初期化
@@ -38,11 +39,12 @@ def setup_logger(
     # フォーマッタの作成
     formatter = logging.Formatter(log_format, datefmt=date_format)
 
-    # コンソールハンドラの追加
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
+    if show_console:
+        # コンソールハンドラの追加
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(log_level)
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
 
     # ファイルハンドラの追加（指定された場合）
     if log_file:
