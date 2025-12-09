@@ -1,5 +1,6 @@
 import datetime
 import logging
+import os
 import random
 from collections import deque
 from dataclasses import dataclass
@@ -83,7 +84,6 @@ class ReplayBuffer:
             m_target = np.zeros(625, dtype=np.float32)
             t_target = np.zeros(51, dtype=np.float32)
 
-            # ★修正箇所: P2の場合は行動を反転(flip)させてからターゲットにする
             should_flip = sample.player == P2
 
             for action_hash, prob in sample.mcts_policy.items():
@@ -111,7 +111,7 @@ class ReplayBuffer:
 
 
 @ray.remote(num_cpus=1, num_gpus=0)
-def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
+def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
     """
     Ray Worker: Self-playを実行してデータを収集
 
@@ -123,6 +123,11 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
     Returns:
         ゲームのデータサンプルリスト
     """
+    pid = os.getpid()
+    log_filename = Path(__file__).parent / f"logs/proc/worker_selfplay_{index}.log"
+    setup_logger(log_level=logging.DEBUG, log_file=log_filename, show_console=False)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Worker process started. PID: {pid}")
     torch.set_num_threads(1)
     # デフォルト値の設定 (config.pyから)
     if dirichlet_alpha is None:
@@ -150,7 +155,12 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
     while not done:
         # MCTS実行
         # mcts_policy: {action_hash: prob}
-        mcts_policy, _ = mcts.search(game, num_mcts_simulations)
+        mcts_policy, values = mcts.search(game, num_mcts_simulations)
+        # 強制終了判定
+        if step >= MAX_STEPS:
+            done = True
+            winner = 0  # 引き分け扱い
+            break
 
         # 温度パラメータの制御 (config.pyから)
         # 序盤はランダム性を残し、中盤以降はGreedyに
@@ -163,7 +173,12 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
         else:
             # 温度 = 0 (最大確率の手を選択) - 中盤以降は最善手
             action = max(mcts_policy, key=lambda x: mcts_policy[x])
-
+        action_prob = mcts_policy[action]
+        action_value = values.get(action, 0.0)  # valuesはMCTSのQ値
+        logger.debug(
+            f"P{game.current_player} Step{step}: action={action}, "
+            f"prob={action_prob:.4f}, value={action_value:.4f}"
+        )
         # 記録 (現在の状態、MCTSの分布、手番)
         # encode_stateは (90, 5, 5) を返す
         record.append(
@@ -179,11 +194,9 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=None):
         step += 1
 
     # ゲーム結果のログ出力（デバッグ用）
-    result_str = "Draw" if winner == 0 else f"P{winner} Win"
-    logger.debug(
-        f"Selfplay finished: {result_str}, Steps: {step}, "
-        f"MCTS sims: {num_mcts_simulations}"
-    )
+    result_str = ("Draw" if winner == 0 else f"P{winner} Win") + f", Steps: {step}"
+    logger.info(f"Selfplay finished: {result_str}, MCTS sims: {num_mcts_simulations}")
+    print(result_str)
 
     # 報酬の割り当て (Winner視点)
     # game.winner: P1(1) or P2(2) or Draw(0)
@@ -221,7 +234,6 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
         ignore_reinit_error=True,
         include_dashboard=False,
         configure_logging=True,
-        logging_level=logging.ERROR,
     )
     device = training_config.DEVICE
     logger.info(f"Training started on {device}")
@@ -251,18 +263,19 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
 
     replay = ReplayBuffer(buffer_size=BUFFER_SIZE)
     work_in_progresses = [
-        selfplay.remote(current_weights_ref, num_mcts_simulations)
-        for _ in range(n_parallel_selfplay)
+        selfplay.remote(current_weights_ref, num_mcts_simulations, number)
+        for number in range(n_parallel_selfplay)
     ]
 
     total_steps = 0
     pbar = tqdm(total=MAX_EPOCH, desc="Training")
-
+    number = -1
     while total_steps < MAX_EPOCH:
         finished, work_in_progresses = ray.wait(work_in_progresses, num_returns=1)
         replay.add_record(ray.get(finished[0]))
+        number = (number + 1) % n_parallel_selfplay
         work_in_progresses.append(
-            selfplay.remote(current_weights_ref, num_mcts_simulations)
+            selfplay.remote(current_weights_ref, num_mcts_simulations, number)
         )
 
         if len(replay) > BATCH_SIZE:
@@ -347,13 +360,10 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
 
 
 if __name__ == "__main__":
-    # エントリーポイントでロギングを初期化 (config.pyからパスを取得)
-    Path(path_config.LOGS_DIR).mkdir(exist_ok=True)
-    Path(path_config.MODELS_DIR).mkdir(exist_ok=True)
+    # エントリーポイントでロギングを初期化
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"{path_config.LOGS_DIR}/training_{timestamp}.log"
-
     setup_logger(
         log_level=logging.INFO,
         log_file=log_file,

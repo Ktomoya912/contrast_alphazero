@@ -1,9 +1,12 @@
+import logging
+from pathlib import Path
+
 import ray
 import torch
 
-from config import evaluation_config, game_config, path_config
+from config import evaluation_config, game_config
 from contrast_game import P1, P2, ContrastGame
-from logger import get_logger
+from logger import setup_logger
 from mcts import MCTS
 from model import ContrastDualPolicyNet
 from players.rule_based import RuleBasedPlayer
@@ -39,10 +42,15 @@ class EloEvaluator:
         self.k_factor = k_factor
         self.rule_based_bot_p1 = RuleBasedPlayer(P1)
         self.rule_based_bot_p2 = RuleBasedPlayer(P2)
+        setup_logger(log_file=Path(__file__).parent / "logs/elo.log")
+        self.logger = logging.getLogger(__name__)
 
         # 評価用モデルのインスタンスを保持（都度生成しない）
         self.model = ContrastDualPolicyNet().to(self.device)
         self.model.eval()
+
+        self.save_path = Path("models")
+        self.save_path.mkdir(exist_ok=True)
 
     def evaluate(self, model_weights, step_count, num_games=10, mcts_simulations=50):
         """モデルを評価してELOを更新
@@ -102,6 +110,7 @@ class EloEvaluator:
                         logger.warning(f"Game {i + 1}: No valid policy for model")
                         break
                     action = max(policy, key=lambda x: policy[x])
+                    action = max(policy, key=lambda x: policy[x])
                 else:
                     action = rb_bot.get_action(game)
                     if action is None:
@@ -138,11 +147,12 @@ class EloEvaluator:
             f"Win: {wins}, Loss: {losses}, Draw: {draws} ({win_rate:.1f}%) | "
             f"ELO: {self.agent_elo:.1f} ({diff:+.1f})"
         )
-        logger.info(log_msg)
-        print(log_msg)  # Rayのログ転送用
+        self.logger.info(log_msg)
 
-        # モデルの保存 (評価プロセス側で行う、config.pyからパスを取得)
-        save_path = f"{path_config.MODELS_DIR}/model_step_{step_count}_elo_{int(self.agent_elo)}.pth"
+        # モデルの保存 (評価プロセス側で行う)
+        save_path = (
+            self.save_path / f"model_step_{step_count}_elo_{int(self.agent_elo)}.pth"
+        )
         torch.save(model_weights, save_path)
 
         return self.agent_elo, win_rate
