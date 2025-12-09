@@ -1,13 +1,14 @@
+import logging
+from pathlib import Path
+
 import ray
 import torch
 
 from contrast_game import P1, P2, ContrastGame
-from logger import get_logger
+from logger import setup_logger
 from mcts import MCTS
 from model import ContrastDualPolicyNet
-from rule_based_ai import RuleBasedPlayerV2
-
-logger = get_logger(__name__)
+from players import RuleBasedPlayer
 
 
 # ★変更: Rayのアクターとして定義 (CPUを1つ専有)
@@ -19,8 +20,10 @@ class EloEvaluator:
         self.baseline_elo = baseline_elo
         self.agent_elo = 1000
         self.k_factor = k_factor
-        self.rule_based_bot_p1 = RuleBasedPlayerV2(P1)
-        self.rule_based_bot_p2 = RuleBasedPlayerV2(P2)
+        self.rule_based_bot_p1 = RuleBasedPlayer(P1)
+        self.rule_based_bot_p2 = RuleBasedPlayer(P2)
+        setup_logger(log_file=Path(__file__).parent / "logs/elo.log")
+        self.logger = logging.getLogger(__name__)
 
         # 評価用モデルのインスタンスを保持（都度生成しない）
         self.model = ContrastDualPolicyNet().to(self.device)
@@ -58,7 +61,7 @@ class EloEvaluator:
                     policy, _ = mcts.search(game, mcts_simulations)
                     if not policy:
                         break
-                    action = max(policy, key=policy.get)
+                    action = max(policy, key=lambda x: policy[x])
                 else:
                     action = rb_bot.get_action(game)
                     if action is None:
@@ -92,8 +95,7 @@ class EloEvaluator:
             f"Win: {wins}, Loss: {losses}, Draw: {draws} ({win_rate:.1f}%) | "
             f"ELO: {self.agent_elo:.1f} ({diff:+.1f})"
         )
-        logger.info(log_msg)
-        print(log_msg)  # Rayのログ転送用
+        self.logger.info(log_msg)
 
         # モデルの保存 (評価プロセス側で行う)
         save_path = f"models/model_step_{step_count}_elo_{int(self.agent_elo)}.pth"

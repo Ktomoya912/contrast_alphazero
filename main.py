@@ -97,10 +97,15 @@ class ReplayBuffer:
 
 
 @ray.remote(num_cpus=1, num_gpus=0)
-def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
+def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
     """
     Ray Worker: Self-playを実行してデータを収集
     """
+    pid = os.getpid()
+    log_filename = Path(__file__).parent / f"logs/proc/worker_selfplay_{index}.log"
+    setup_logger(log_level=logging.DEBUG, log_file=log_filename)
+    logger = logging.getLogger(__name__)
+    logger.info(f"Worker process started. PID: {pid}")
     torch.set_num_threads(1)
     # モデルの初期化 (CPU)
     model = ContrastDualPolicyNet()
@@ -118,8 +123,7 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
     while not done:
         # MCTS実行
         # mcts_policy: {action_hash: prob}
-        mcts_policy, action_values = mcts.search(game, num_mcts_simulations)
-
+        mcts_policy, values = mcts.search(game, num_mcts_simulations)
         # 強制終了判定
         if step >= MAX_STEPS:
             done = True
@@ -136,8 +140,8 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
             action = np.random.choice(actions, p=probs)
         else:
             # 温度 = 0 (最大確率の手を選択) - 中盤以降は最善手
-            action = max(mcts_policy, key=mcts_policy.get)
-
+            action = max(mcts_policy, key=lambda x: mcts_policy[x])
+        logger.debug(f"P{game.current_player}: {action=}")
         # 記録 (現在の状態、MCTSの分布、手番)
         # encode_stateは (90, 5, 5) を返す
         record.append(
@@ -159,7 +163,7 @@ def selfplay(weights, num_mcts_simulations, dirichlet_alpha=0.3):
         result = "P1 Win"
     else:
         result = "P2 Win"
-    logger.debug(f"Game finished: {result}, Steps: {step}")
+    logger.info(f"Game finished: {result}, Steps: {step}")
 
     # 報酬の割り当て (Winner視点)
     # game.winner: P1(1) or P2(2) or Draw(0)
@@ -180,7 +184,6 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
         ignore_reinit_error=True,
         include_dashboard=False,
         configure_logging=True,
-        logging_level=logging.ERROR,
     )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Training on {device}")
@@ -201,18 +204,19 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
 
     replay = ReplayBuffer(buffer_size=BUFFER_SIZE)
     work_in_progresses = [
-        selfplay.remote(current_weights_ref, num_mcts_simulations)
-        for _ in range(n_parallel_selfplay)
+        selfplay.remote(current_weights_ref, num_mcts_simulations, number)
+        for number in range(n_parallel_selfplay)
     ]
 
     total_steps = 0
     pbar = tqdm(total=MAX_EPOCH, desc="Training")
-
+    number = -1
     while total_steps < MAX_EPOCH:
         finished, work_in_progresses = ray.wait(work_in_progresses, num_returns=1)
         replay.add_record(ray.get(finished[0]))
+        number = (number + 1) % n_parallel_selfplay
         work_in_progresses.append(
-            selfplay.remote(current_weights_ref, num_mcts_simulations)
+            selfplay.remote(current_weights_ref, num_mcts_simulations, number)
         )
 
         if len(replay) > BATCH_SIZE:
