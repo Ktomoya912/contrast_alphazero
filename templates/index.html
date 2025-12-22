@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Contrast AI Battle</title>
+    <style>
+        :root {
+            --bg-color: #f4f7f6;
+            --p1-color: #e74c3c;
+            --p2-color: #3498db;
+            --accent-color: #2ecc71;
+            --text-color: #333;
+        }
+        body { 
+            font-family: 'Helvetica Neue', Arial, sans-serif; 
+            background-color: var(--bg-color); 
+            display: flex; flex-direction: column; align-items: center; 
+            margin: 0; padding: 20px; color: var(--text-color);
+        }
+        h1 { margin: 10px 0 20px; color: #2c3e50; }
+
+        #main-area { display: flex; gap: 40px; align-items: flex-start; margin-bottom: 30px; }
+
+        /* === 盤面 === */
+        #board { 
+            display: grid; grid-template-columns: repeat(5, 70px); gap: 4px; 
+            background-color: #2c3e50; padding: 8px; border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+        
+        .cell { 
+            width: 70px; height: 70px; 
+            display: flex; justify-content: center; align-items: center; 
+            cursor: pointer; position: relative;
+            background-color: #ecf0f1;
+            border: 4px solid transparent; 
+            box-sizing: border-box; 
+            transition: background 0.2s;
+        }
+        
+        .tile-0 { background-color: #fff; } /* White */
+        .tile-1 { background-color: #333; } /* Black */
+        .tile-2 { background-color: #888; } /* Gray */
+
+        .selected { border-color: #f1c40f; }
+
+        /* === コマ === */
+        .piece { 
+            width: 50px; height: 50px;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 24px; color: white; font-weight: bold;
+            position: relative; z-index: 2;
+            filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.3));
+        }
+        /* P1のコマ: 上向き五角形（ゴールは上） */
+        .piece-1 { 
+            background: var(--p1-color);
+            clip-path: polygon(50% 0%, 100% 35%, 80% 100%, 20% 100%, 0% 35%);
+        }
+        /* P2のコマ: 下向き五角形（ゴールは下） */
+        .piece-2 { 
+            background: var(--p2-color);
+            clip-path: polygon(20% 0%, 80% 0%, 100% 65%, 50% 100%, 0% 65%);
+        }
+        .piece-inner { 
+            font-size: 0.75em; 
+            opacity: 0.95;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
+        }
+
+        /* === コントロールパネル === */
+        #controls { 
+            width: 300px; padding: 20px; 
+            background: white; border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .status-box { 
+            text-align: center; font-size: 1.2em; font-weight: bold; margin-bottom: 20px;
+            padding: 10px; border-radius: 4px; background: #eee;
+        }
+
+        /* 評価値バー */
+        .eval-wrapper { margin: 20px 0; }
+        .eval-labels { display: flex; justify-content: space-between; font-size: 0.8em; margin-bottom: 5px; }
+        .eval-bar { 
+            height: 12px; background: var(--p2-color); border-radius: 6px; overflow: hidden; position: relative; 
+        }
+        .eval-fill { 
+            height: 100%; background: var(--p1-color); width: 50%; 
+            transition: width 0.5s ease;
+        }
+        .eval-value-text { text-align: center; font-size: 0.9em; font-weight: bold; margin-top: 5px; }
+
+        /* タイル情報 */
+        .tile-info { margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; }
+        .tile-count-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .tile-icon { 
+            display: inline-block; width: 20px; height: 20px; border-radius: 3px; margin-right: 5px; vertical-align: middle;
+        }
+        .icon-black { background: #333; }
+        .icon-gray { background: #999; }
+
+        /* ボタン */
+        .btn { 
+            width: 100%; padding: 12px; border: none; border-radius: 6px; 
+            cursor: pointer; font-size: 16px; color: white; font-weight: bold;
+            transition: opacity 0.2s;
+        }
+        .btn-start { background: var(--accent-color); margin-top: 15px; }
+        .btn:hover { opacity: 0.9; }
+
+        .settings { margin-top: 20px; padding: 10px; background: #f9f9f9; border-radius: 4px; }
+        
+        /* === ルールセクション === */
+        #rules-area {
+            width: 100%;
+            max-width: 750px;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            line-height: 1.6;
+            position: relative; /* ボタン配置用 */
+        }
+        .rules-header {
+            display: flex; justify-content: space-between; align-items: center;
+            border-bottom: 2px solid var(--accent-color);
+            padding-bottom: 10px; margin-bottom: 20px;
+        }
+        #rules-area h2 { margin: 0; color: #2c3e50; }
+        #rules-area h3 { color: #34495e; margin-top: 20px; margin-bottom: 10px; }
+        
+        /* 言語切り替えボタン */
+        .lang-btn {
+            background: #eee; border: none; padding: 5px 15px;
+            border-radius: 20px; cursor: pointer; font-size: 0.9em;
+            color: #555; transition: background 0.2s;
+        }
+        .lang-btn:hover { background: #ddd; }
+
+        .rules-grid { display: flex; flex-wrap: wrap; gap: 30px; }
+        .rules-col { flex: 1; min-width: 300px; }
+        
+        .tile-desc { display: flex; align-items: center; margin-bottom: 10px; background: #f9f9f9; padding: 8px; border-radius: 6px; }
+        .tile-sample {
+            width: 35px; height: 35px;
+            display: inline-flex; justify-content: center; align-items: center;
+            margin-right: 15px; border-radius: 4px;
+            font-weight: bold; font-size: 20px;
+            box-shadow: inset 1px 1px 3px rgba(0,0,0,0.1);
+        }
+        .sample-0 { background: #ecf0f1; color: #333; }
+        .sample-1 { background: #95a5a6; color: white; }
+        .sample-2 { background: #bdc3c7; color: white; }
+        
+        ul { padding-left: 20px; margin: 0; }
+        li { margin-bottom: 5px; }
+
+        /* === モーダル === */
+        .overlay { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); z-index: 100; }
+        .modal { 
+            display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            background: white; padding: 30px; border-radius: 10px; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 101; text-align: center; min-width: 300px;
+        }
+        .modal h2 { margin-top: 0; }
+        .tile-btn { margin: 5px; width: 45%; }
+        .btn-cancel { background: #e74c3c; margin-top: 10px; }
+        .btn-skip { background: #95a5a6; margin-top: 10px; }
+
+        #result-modal h2 { font-size: 2em; color: var(--accent-color); }
+        .result-details { margin: 20px 0; font-size: 1.1em; }
+
+    </style>
+</head>
+<body>
+
+    <h1>Contrast AI Battle</h1>
+    
+    <div id="main-area">
+        <div id="board"></div>
+        
+        <div id="controls">
+            <div class="status-box" id="status-text">Ready</div>
+            
+            <div class="eval-wrapper">
+                <div class="eval-labels">
+                    <span id="label-p1">P1 (You)</span>
+                    <span id="label-p2">P2 (AI)</span>
+                </div>
+                <div class="eval-bar">
+                    <div class="eval-fill" id="eval-bar-fill"></div>
+                </div>
+                <div class="eval-value-text" id="eval-value-text">Even (0.00)</div>
+            </div>
+
+            <div class="tile-info">
+                <div style="font-weight:bold; color:var(--p1-color); margin-bottom:5px;">P1 Tiles</div>
+                <div class="tile-count-row">
+                    <span><span class="tile-icon icon-black"></span>Black</span>
+                    <span id="p1-black-count">3</span>
+                </div>
+                <div class="tile-count-row">
+                    <span><span class="tile-icon icon-gray"></span>Gray</span>
+                    <span id="p1-gray-count">1</span>
+                </div>
+            </div>
+            
+            <div class="tile-info">
+                <div style="font-weight:bold; color:var(--p2-color); margin-bottom:5px;">P2 Tiles</div>
+                <div class="tile-count-row">
+                    <span><span class="tile-icon icon-black"></span>Black</span>
+                    <span id="p2-black-count">3</span>
+                </div>
+                <div class="tile-count-row">
+                    <span><span class="tile-icon icon-gray"></span>Gray</span>
+                    <span id="p2-gray-count">1</span>
+                </div>
+            </div>
+
+            <div class="settings">
+                <label><input type="radio" name="player" value="1" checked> You First (P1)</label><br>
+                <label><input type="radio" name="player" value="2"> AI First (P2)</label>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button class="btn" style="background: #95a5a6; flex: 1;" onclick="undoGame()">Undo</button>
+                <button class="btn btn-start" style="flex: 2; margin-top: 0;" onclick="resetGame()">New Game</button>
+            </div>
+            
+            <button class="btn btn-start" onclick="resetGame()">Start / Reset Game</button>
+        </div>
+    </div>
+
+    <div id="rules-area">
+        <div class="rules-header">
+            <h2>📜 Game Rules</h2>
+            <button class="lang-btn" onclick="toggleLanguage()">Switch to English</button>
+        </div>
+
+        <div id="rules-ja">
+            <div class="rules-grid">
+                <div class="rules-col">
+                    <h3>勝利条件</h3>
+                    <ul>
+                        <li>自分のコマを1つでも<b>相手陣地の最奥列</b>（敵の初期配置列）に到達させれば勝利です。</li>
+                        <li>または、相手のコマを全て動けなくさせた場合も勝利となります。</li>
+                    </ul>
+
+                    <h3>ゲームの流れ</h3>
+                    <p>交互に手番を行います。各ターンで以下の順に行動します：</p>
+                    <ol>
+                        <li><b>移動</b>: 自分のコマを1つ動かす（必須）。</li>
+                        <li><b>タイル配置</b>: 移動後、任意でタイルを置く（任意）。</li>
+                    </ol>
+                </div>
+                <div class="rules-col">
+                    <h3>移動とタイル</h3>
+                    <p>コマがいるマスの<b>タイルの色</b>によって、動ける方向が決まります。</p>
+                    
+                    <div class="tile-desc">
+                        <div class="tile-sample sample-0">✜</div>
+                        <div><b>白 (White)</b><br>縦・横（十字）に1マス移動</div>
+                    </div>
+                    <div class="tile-desc">
+                        <div class="tile-sample sample-1">✖</div>
+                        <div><b>黒 (Black)</b><br>斜めに1マス移動</div>
+                    </div>
+                    <div class="tile-desc">
+                        <div class="tile-sample sample-2">✳</div>
+                        <div><b>グレー (Gray)</b><br>全8方向に1マス移動</div>
+                    </div>
+
+                    <h3>その他のルール</h3>
+                    <ul>
+                        <li>味方のコマは飛び越えられます（連続ジャンプ可）。</li>
+                        <li>敵のコマや、盤外へは移動できません。</li>
+                        <li>タイルは「白タイル」かつ「誰もいないマス」にのみ配置可能です。</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div id="rules-en" style="display: none;">
+            <div class="rules-grid">
+                <div class="rules-col">
+                    <h3>Objective</h3>
+                    <ul>
+                        <li>Win by moving one of your pieces to the <b>opponent's back rank</b> (starting row).</li>
+                        <li>You also win if the opponent has no valid moves left.</li>
+                    </ul>
+
+                    <h3>Turn Sequence</h3>
+                    <p>Players take turns. In each turn, you perform the following:</p>
+                    <ol>
+                        <li><b>Move</b>: Move one of your pieces (Mandatory).</li>
+                        <li><b>Place Tile</b>: Optionally place a tile after moving (Optional).</li>
+                    </ol>
+                </div>
+                <div class="rules-col">
+                    <h3>Movement & Tiles</h3>
+                    <p>The allowed movement direction depends on the <b>color of the tile</b> your piece is standing on.</p>
+                    
+                    <div class="tile-desc">
+                        <div class="tile-sample sample-0">✜</div>
+                        <div><b>White</b><br>Move 1 step orthogonally (up, down, left, right).</div>
+                    </div>
+                    <div class="tile-desc">
+                        <div class="tile-sample sample-1">✖</div>
+                        <div><b>Black</b><br>Move 1 step diagonally.</div>
+                    </div>
+                    <div class="tile-desc">
+                        <div class="tile-sample sample-2">✳</div>
+                        <div><b>Gray</b><br>Move 1 step in any of the 8 directions.</div>
+                    </div>
+
+                    <h3>Other Rules</h3>
+                    <ul>
+                        <li>You can jump over your own pieces (chain jumps allowed).</li>
+                        <li>You cannot move onto opponent's pieces or off the board.</li>
+                        <li>Tiles can only be placed on <b>White tiles</b> that are currently <b>empty</b>.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="overlay" id="overlay"></div>
+    <div class="modal" id="tile-modal">
+        <h3>Place a Tile?</h3>
+        <div id="tile-options" style="display:flex; justify-content:center; flex-wrap:wrap;"></div>
+        <button class="btn btn-skip" onclick="finishMove(null)">Skip (No Tile)</button>
+        <button class="btn btn-cancel" onclick="cancelTileSelection()">Cancel Move</button>
+    </div>
+
+    <div class="modal" id="result-modal">
+        <h2 id="result-title">Game Over</h2>
+        <div class="result-details" id="result-msg"></div>
+        <button class="btn btn-start" onclick="closeResultAndReset()">Play Again</button>
+    </div>
+
+    <script>
+        let gameState = null;
+        let selectedFrom = null;
+        let selectedTo = null;
+        let myPlayerId = 1;
+        let tilePlacementMode = null;
+        let currentLang = 'ja'; // 'ja' or 'en'
+
+        const MOVE_ICONS = {
+            0: "✜", // White
+            1: "✖", // Black
+            2: "✳"  // Gray
+        };
+
+        fetchState();
+
+        async function fetchState() {
+            const res = await fetch('/api/state');
+            gameState = await res.json();
+            render();
+        }
+
+        function render() {
+            const board = document.getElementById('board');
+            board.innerHTML = '';
+            
+            const status = document.getElementById('status-text');
+            if (gameState.game_over) {
+                if(document.getElementById('result-modal').style.display === 'none'){
+                    showResult(gameState.winner);
+                }
+                status.innerText = "Game Over";
+                status.style.background = "#ddd";
+            } else {
+                const isMyTurn = gameState.current_player === myPlayerId;
+                status.innerText = isMyTurn ? "Your Turn" : "AI Thinking...";
+                status.style.background = isMyTurn ? "#d5f5e3" : "#eee";
+                status.style.color = isMyTurn ? "#27ae60" : "#7f8c8d";
+            }
+
+            const p1Label = myPlayerId === 1 ? "P1 (You)" : "P1 (AI)";
+            const p2Label = myPlayerId === 2 ? "P2 (You)" : "P2 (AI)";
+            document.getElementById('label-p1').innerText = p1Label;
+            document.getElementById('label-p2').innerText = p2Label;
+
+            document.getElementById('p1-black-count').innerText = gameState.tile_counts[0][0];
+            document.getElementById('p1-gray-count').innerText = gameState.tile_counts[0][1];
+            document.getElementById('p2-black-count').innerText = gameState.tile_counts[1][0];
+            document.getElementById('p2-gray-count').innerText = gameState.tile_counts[1][1];
+
+            updateEvaluation(gameState.ai_value, gameState.ai_player_id);
+
+            for (let y = 0; y < 5; y++) {
+                for (let x = 0; x < 5; x++) {
+                    const div = document.createElement('div');
+                    const tileType = gameState.tiles[y][x];
+                    div.className = `cell tile-${tileType}`;
+                    
+                    const piece = gameState.pieces[y][x];
+                    if (piece !== 0) {
+                        const span = document.createElement('span');
+                        span.className = `piece piece-${piece}`;
+                        span.innerHTML = `<span class="piece-inner">${MOVE_ICONS[tileType]}</span>`;
+                        div.appendChild(span);
+                    }
+
+                    div.onclick = () => onCellClick(x, y);
+                    if (selectedFrom && selectedFrom.x === x && selectedFrom.y === y) {
+                        div.classList.add('selected');
+                    }
+                    board.appendChild(div);
+                }
+            }
+        }
+
+        function updateEvaluation(rawVal, aiPlayerId) {
+            let p1Val = 0.0;
+            if (aiPlayerId === 1) p1Val = rawVal; 
+            else p1Val = -rawVal;
+
+            let percentage = (p1Val + 1) * 50;
+            percentage = Math.max(0, Math.min(100, percentage));
+            
+            document.getElementById('eval-bar-fill').style.width = `${percentage}%`;
+            
+            let text = "";
+            if (p1Val > 0.1) text = `P1 Lead (+${p1Val.toFixed(2)})`;
+            else if (p1Val < -0.1) text = `P2 Lead (${(-p1Val).toFixed(2)})`;
+            else text = `Even (${p1Val.toFixed(2)})`;
+            
+            document.getElementById('eval-value-text').innerText = text;
+        }
+
+        // --- ルール言語切り替え ---
+        function toggleLanguage() {
+            const jaDiv = document.getElementById('rules-ja');
+            const enDiv = document.getElementById('rules-en');
+            const btn = document.querySelector('.lang-btn');
+
+            if (currentLang === 'ja') {
+                jaDiv.style.display = 'none';
+                enDiv.style.display = 'block';
+                btn.innerText = "日本語に切り替え";
+                currentLang = 'en';
+            } else {
+                jaDiv.style.display = 'block';
+                enDiv.style.display = 'none';
+                btn.innerText = "Switch to English";
+                currentLang = 'ja';
+            }
+        }
+
+        function showResult(winner) {
+            document.getElementById('overlay').style.display = 'block';
+            const modal = document.getElementById('result-modal');
+            const title = document.getElementById('result-title');
+            const msg = document.getElementById('result-msg');
+            modal.style.display = 'block';
+            
+            if (winner === myPlayerId) {
+                title.innerText = "You Win! 🎉";
+                title.style.color = "#2ecc71";
+                msg.innerText = "Congratulations!";
+            } else {
+                title.innerText = "You Lose...";
+                title.style.color = "#e74c3c";
+                msg.innerText = "AI won this match.";
+            }
+        }
+
+        async function closeResultAndReset() {
+            document.getElementById('result-modal').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+            await resetGame();
+        }
+
+        async function onCellClick(x, y) {
+            if (gameState.game_over || gameState.current_player !== myPlayerId) return;
+            if (tilePlacementMode) { await finishMove({type: tilePlacementMode, x, y}); tilePlacementMode = null; return; }
+            if (!selectedFrom) { if (gameState.pieces[y][x] === myPlayerId) { selectedFrom = {x, y}; render(); } return; }
+            if (selectedFrom.x === x && selectedFrom.y === y) { selectedFrom = null; render(); return; }
+            if (gameState.pieces[y][x] === myPlayerId) { selectedFrom = {x, y}; render(); return; }
+            selectedTo = {x, y}; showTileModal();
+        }
+
+        function showTileModal() {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('tile-modal').style.display = 'block';
+            const container = document.getElementById('tile-options');
+            container.innerHTML = '';
+            const pIdx = myPlayerId - 1;
+            const counts = gameState.tile_counts[pIdx];
+            if (counts[0] > 0) {
+                const btn = document.createElement('button');
+                btn.className = 'btn icon-black';
+                btn.style.width = "45%";
+                btn.innerText = `Black (${counts[0]})`;
+                btn.onclick = () => enterTilePlacementMode(1);
+                container.appendChild(btn);
+            }
+            if (counts[1] > 0) {
+                const btn = document.createElement('button');
+                btn.className = 'btn icon-gray';
+                btn.style.width = "45%";
+                btn.style.marginLeft = "5px";
+                btn.innerText = `Gray (${counts[1]})`;
+                btn.onclick = () => enterTilePlacementMode(2);
+                container.appendChild(btn);
+            }
+        }
+
+        function enterTilePlacementMode(type) { tilePlacementMode = type; document.getElementById('tile-modal').style.display = 'none'; document.getElementById('overlay').style.display = 'none'; }
+        function cancelTileSelection() { document.getElementById('overlay').style.display = 'none'; document.getElementById('tile-modal').style.display = 'none'; selectedFrom = null; selectedTo = null; tilePlacementMode = null; render(); }
+        async function finishMove(tileData) {
+            document.getElementById('overlay').style.display = 'none'; document.getElementById('tile-modal').style.display = 'none';
+            const payload = { is_human: true, from: [selectedFrom.x, selectedFrom.y], to: [selectedTo.x, selectedTo.y], tile: tileData };
+            selectedFrom = null; selectedTo = null;
+            const res = await fetch('/api/move', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+            if (!res.ok) { const err = await res.json(); alert(err.error); }
+            await fetchState();
+        }
+
+        async function resetGame() {
+            const radios = document.getElementsByName('player');
+            for (const radio of radios) { if (radio.checked) { myPlayerId = parseInt(radio.value); break; } }
+            
+            document.getElementById('status-text').innerText = "Initializing...";
+            document.getElementById('status-text').style.background = "#eee";
+            document.getElementById('eval-bar-fill').style.width = "50%";
+            document.getElementById('eval-value-text').innerText = "Even (0.00)";
+            
+            const p1Label = myPlayerId === 1 ? "P1 (You)" : "P1 (AI)";
+            const p2Label = myPlayerId === 2 ? "P2 (You)" : "P2 (AI)";
+            document.getElementById('label-p1').innerText = p1Label;
+            document.getElementById('label-p2').innerText = p2Label;
+
+            selectedFrom = null; selectedTo = null; tilePlacementMode = null;
+
+            await fetch('/api/reset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ human_player: myPlayerId })
+            });
+            await fetchState();
+        }
+
+        // script タグ内に追加
+
+        async function undoGame() {
+            // 現在の自分のプレイヤーIDを送信（それに基づいて戻す手数を判断するため）
+            const radios = document.getElementsByName('player');
+            for (const radio of radios) { if (radio.checked) { myPlayerId = parseInt(radio.value); break; } }
+
+            const res = await fetch('/api/undo', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ human_player: myPlayerId })
+            });
+
+            if (res.ok) {
+                // 選択状態などもリセット
+                selectedFrom = null;
+                selectedTo = null;
+                tilePlacementMode = null;
+                await fetchState();
+            } else {
+                // 戻せない場合（初手など）
+                console.log("Cannot undo");
+            }
+        }
+    </script>
+</body>
+</html>
