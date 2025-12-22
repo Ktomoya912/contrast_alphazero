@@ -10,11 +10,13 @@ import numpy as np
 import ray
 import torch
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from config import (
     evaluation_config,
     mcts_config,
+    network_config,
     path_config,
     training_config,
 )
@@ -25,6 +27,8 @@ from mcts import MCTS
 from model import ContrastDualPolicyNet, loss_function
 
 logger = get_logger(__name__)
+
+timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
 @dataclass
@@ -108,7 +112,7 @@ def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
     """
     pid = os.getpid()
     log_filename = Path(__file__).parent / f"logs/proc/worker_selfplay_{index}.log"
-    setup_logger(log_level=logging.DEBUG, log_file=log_filename, show_console=False)
+    setup_logger(log_level=logging.INFO, log_file=log_filename, show_console=False)
     logger = logging.getLogger(__name__)
     logger.info(f"Worker process started. PID: {pid}")
     torch.set_num_threads(1)
@@ -176,11 +180,6 @@ def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
         done, winner = game.step(action)
         step += 1
 
-    # ゲーム結果のログ出力（デバッグ用）
-    result_str = ("Draw" if winner == 0 else f"P{winner} Win") + f", Steps: {step}"
-    logger.info(f"Selfplay finished: {result_str}, MCTS sims: {num_mcts_simulations}")
-    print(result_str)
-
     # 報酬の割り当て (Winner視点)
     # game.winner: P1(1) or P2(2) or Draw(0)
     for sample in record:
@@ -192,9 +191,10 @@ def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
             sample.reward = 1.0 if sample.player == winner else -1.0
 
     if winner == 0:
-        print(f"Selfplay result: DRAW (Step {step})")
+        result_str = f"Selfplay result: DRAW (Step {step})"
     else:
-        print(f"Selfplay result: WIN P{winner} (Step {step})")
+        result_str = f"Selfplay result: WIN P{winner} (Step {step})"
+    logger.info(f"{result_str}, MCTS sims: {num_mcts_simulations}")
 
     return record
 
@@ -251,6 +251,19 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
         selfplay.remote(current_weights_ref, num_mcts_simulations, number)
         for number in range(n_parallel_selfplay)
     ]
+    exp_name = (
+        f"{timestamp}_"
+        f"res{network_config.NUM_RES_BLOCKS}_"
+        f"filt{network_config.NUM_FILTERS}_"
+        f"sim{num_mcts_simulations}_"
+        f"bs{training_config.BATCH_SIZE}_"
+        f"lr{training_config.LEARNING_RATE}"
+    )
+
+    # TensorBoard Writerの初期化
+    log_dir = f"{path_config.LOGS_DIR}/tensorboard/{exp_name}"
+    writer = SummaryWriter(log_dir=log_dir)
+    logger.info(f"TensorBoard log dir: {log_dir}")
 
     total_steps = 0
     pbar = tqdm(total=training_config.MAX_EPOCH, desc="Training")
@@ -285,6 +298,13 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
             # 3. ウエイトの更新
             # 一定ステップごとにRay上のウエイトを更新 (config.pyから間隔を取得)
             if total_steps % training_config.LOG_INTERVAL == 0:
+                writer.add_scalar("Loss/Total", loss.item(), total_steps)
+                writer.add_scalar("Loss/Value", v_loss, total_steps)
+                writer.add_scalar("Loss/Move", m_loss, total_steps)
+                writer.add_scalar("Loss/Tile", t_loss, total_steps)
+                writer.add_scalar(
+                    "Training/LR", scheduler.get_last_lr()[0], total_steps
+                )
                 current_weights_ref = ray.put(network.to("cpu").state_dict())
                 network.to(device)
                 current_lr = scheduler.get_last_lr()[0]
@@ -308,6 +328,8 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
                 if ready:
                     try:
                         elo, win_rate = ray.get(evaluation_future)
+                        writer.add_scalar("Evaluation/ELO", elo, total_steps)
+                        writer.add_scalar("Evaluation/WinRate", win_rate, total_steps)
                         tqdm.write(
                             f"Evaluation Result: ELO={elo:.1f}, WinRate={win_rate:.1f}%"
                         )
@@ -341,7 +363,6 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
 if __name__ == "__main__":
     # エントリーポイントでロギングを初期化
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"{path_config.LOGS_DIR}/training_{timestamp}.log"
     setup_logger(
         log_level=logging.INFO,

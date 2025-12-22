@@ -98,7 +98,7 @@ class TrainingConfig:
 class EvaluationConfig:
     """モデル評価の設定"""
 
-    EVAL_INTERVAL: int = 100  # 評価を実行する間隔（学習ステップ数）
+    EVAL_INTERVAL: int = 1000  # 評価を実行する間隔（学習ステップ数）
     EVAL_NUM_GAMES: int = 10  # 評価時の対戦回数
     EVAL_MCTS_SIMS: int = 50  # 評価時のMCTSシミュレーション回数
 
