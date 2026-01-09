@@ -23,7 +23,7 @@ class GameConfig:
     INITIAL_GRAY_TILES: int = 1
 
     HISTORY_SIZE: int = 8
-    INPUT_CHANNELS: int = 90  # 履歴8手分の特徴量
+    INPUT_CHANNELS: int = 66  # 履歴8手分の特徴量 (8*4盤面 + 8*4タイル数 + 2メタ情報)
 
     MAX_STEPS_PER_GAME: int = 150  # ゲームの最大手数
 
@@ -47,7 +47,7 @@ class MCTSConfig:
 class NetworkConfig:
     """ニューラルネットワークのアーキテクチャ設定"""
 
-    NUM_RES_BLOCKS: int = 4  # Residualブロックの数
+    NUM_RES_BLOCKS: int = 8  # Residualブロックの数
     NUM_FILTERS: int = 64  # 畳み込み層のフィルタ数
 
     # ヘッドの設定

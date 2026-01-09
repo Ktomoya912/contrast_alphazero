@@ -517,7 +517,7 @@ class TestStateEncoding(unittest.TestCase):
         game = ContrastGame()
         state = game.encode_state()
 
-        self.assertEqual(state.shape, (90, 5, 5))
+        self.assertEqual(state.shape, (66, 5, 5))
 
     def test_encode_state_dtype(self):
         """エンコード結果のデータ型を確認"""

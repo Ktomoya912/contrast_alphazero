@@ -33,7 +33,7 @@ timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 @dataclass
 class Sample:
-    state: np.ndarray  # (90, 5, 5)
+    state: np.ndarray  # (66, 5, 5)
     mcts_policy: dict[int, float]  # {action_hash: prob}
     player: int  # 1 or 2
     reward: float = 0.0  # 後で埋める
@@ -167,7 +167,7 @@ def selfplay(weights, num_mcts_simulations, index, dirichlet_alpha=0.3):
             f"prob={action_prob:.4f}, value={action_value:.4f}"
         )
         # 記録 (現在の状態、MCTSの分布、手番)
-        # encode_stateは (90, 5, 5) を返す
+        # encode_stateは (66, 5, 5) を返す
         record.append(
             Sample(
                 state=game.encode_state(),

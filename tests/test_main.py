@@ -152,7 +152,7 @@ class TestSample(unittest.TestCase):
 
     def test_sample_initialization(self):
         """Sampleが正しく初期化されるか確認"""
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         policy = {0: 0.5, 1: 0.3, 2: 0.2}
 
         sample = Sample(state=state, mcts_policy=policy, player=P1)
@@ -163,7 +163,7 @@ class TestSample(unittest.TestCase):
 
     def test_sample_with_reward(self):
         """Sampleに報酬を設定できるか確認"""
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         policy = {0: 1.0}
 
         sample = Sample(state=state, mcts_policy=policy, player=P2, reward=1.0)
@@ -185,7 +185,7 @@ class TestReplayBuffer(unittest.TestCase):
         """ReplayBufferにレコードを追加できるか確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         samples = [
             Sample(state=state, mcts_policy={0: 1.0}, player=P1) for _ in range(5)
         ]
@@ -198,7 +198,7 @@ class TestReplayBuffer(unittest.TestCase):
         """ReplayBufferが最大サイズを超えないか確認"""
         buffer = ReplayBuffer(buffer_size=10)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         samples = [
             Sample(state=state, mcts_policy={0: 1.0}, player=P1) for _ in range(20)
         ]
@@ -213,7 +213,7 @@ class TestReplayBuffer(unittest.TestCase):
         buffer = ReplayBuffer(buffer_size=100)
 
         # サンプルを追加
-        state = np.random.randn(90, 5, 5).astype(np.float32)
+        state = np.random.randn(66, 5, 5).astype(np.float32)
         samples = [
             Sample(state=state, mcts_policy={0: 0.5, 1: 0.5}, player=P1, reward=1.0)
             for _ in range(10)
@@ -224,7 +224,7 @@ class TestReplayBuffer(unittest.TestCase):
         states, m_targets, t_targets, v_targets = buffer.get_minibatch(4)
 
         # 形状の確認
-        self.assertEqual(states.shape, (4, 90, 5, 5))
+        self.assertEqual(states.shape, (4, 66, 5, 5))
         self.assertEqual(m_targets.shape, (4, 625))
         self.assertEqual(t_targets.shape, (4, 51))
         self.assertEqual(v_targets.shape, (4, 1))
@@ -233,7 +233,7 @@ class TestReplayBuffer(unittest.TestCase):
         """P1のサンプルでは行動が反転されないことを確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         # 特定のアクション
         action = encode_action(0, 0)  # move_idx=0, tile_idx=0
         policy = {action: 1.0}
@@ -251,7 +251,7 @@ class TestReplayBuffer(unittest.TestCase):
         """P2のサンプルでは行動が反転されることを確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         # P2の視点でのアクション (盤面は既に反転されている)
         action = encode_action(0, 1)  # move_idx=0, tile_idx=1 (black tile at pos 0)
         policy = {action: 1.0}
@@ -274,7 +274,7 @@ class TestReplayBuffer(unittest.TestCase):
         """P1で複数アクションを持つポリシーが正しく変換されるか確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         action1 = encode_action(0, 0)
         action2 = encode_action(1, 0)
         policy = {action1: 0.7, action2: 0.3}
@@ -293,7 +293,7 @@ class TestReplayBuffer(unittest.TestCase):
         """P2で複数アクションを持つポリシーが正しく反転されるか確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         # P2の視点でのアクション
         action1 = encode_action(0, 0)
         action2 = encode_action(1, 0)
@@ -318,7 +318,7 @@ class TestReplayBuffer(unittest.TestCase):
         """報酬が正しくvalue_targetsに変換されるか確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
 
         # 勝利サンプル
         sample_win = Sample(state=state, mcts_policy={0: 1.0}, player=P1, reward=1.0)
@@ -338,7 +338,7 @@ class TestReplayBuffer(unittest.TestCase):
         """バッチサイズがバッファサイズより大きい場合の動作確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         samples = [
             Sample(state=state, mcts_policy={0: 1.0}, player=P1) for _ in range(5)
         ]
@@ -456,8 +456,8 @@ class TestGameStateEncoding(unittest.TestCase):
             game.step(legal_actions[0])
 
             state = game.encode_state()
-            # 常に(90, 5, 5)の形状
-            self.assertEqual(state.shape, (90, 5, 5))
+            # 常に(66, 5, 5)の形状
+            self.assertEqual(state.shape, (66, 5, 5))
 
 
 class TestRewardAssignment(unittest.TestCase):
@@ -467,12 +467,12 @@ class TestRewardAssignment(unittest.TestCase):
         """P1が勝った場合の報酬割り当てを確認"""
         samples = [
             Sample(
-                state=np.zeros((90, 5, 5), dtype=np.float32),
+                state=np.zeros((66, 5, 5), dtype=np.float32),
                 mcts_policy={0: 1.0},
                 player=P1,
             ),
             Sample(
-                state=np.zeros((90, 5, 5), dtype=np.float32),
+                state=np.zeros((66, 5, 5), dtype=np.float32),
                 mcts_policy={0: 1.0},
                 player=P2,
             ),
@@ -495,12 +495,12 @@ class TestRewardAssignment(unittest.TestCase):
         """P2が勝った場合の報酬割り当てを確認"""
         samples = [
             Sample(
-                state=np.zeros((90, 5, 5), dtype=np.float32),
+                state=np.zeros((66, 5, 5), dtype=np.float32),
                 mcts_policy={0: 1.0},
                 player=P1,
             ),
             Sample(
-                state=np.zeros((90, 5, 5), dtype=np.float32),
+                state=np.zeros((66, 5, 5), dtype=np.float32),
                 mcts_policy={0: 1.0},
                 player=P2,
             ),
@@ -523,12 +523,12 @@ class TestRewardAssignment(unittest.TestCase):
         """引き分けの場合の報酬割り当てを確認"""
         samples = [
             Sample(
-                state=np.zeros((90, 5, 5), dtype=np.float32),
+                state=np.zeros((66, 5, 5), dtype=np.float32),
                 mcts_policy={0: 1.0},
                 player=P1,
             ),
             Sample(
-                state=np.zeros((90, 5, 5), dtype=np.float32),
+                state=np.zeros((66, 5, 5), dtype=np.float32),
                 mcts_policy={0: 1.0},
                 player=P2,
             ),
@@ -561,7 +561,7 @@ class TestEdgeCases(unittest.TestCase):
         """空のポリシーでの動作確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         # 空のポリシー
         sample = Sample(state=state, mcts_policy={}, player=P1, reward=0.0)
         buffer.add_record([sample])
@@ -576,7 +576,7 @@ class TestEdgeCases(unittest.TestCase):
         """単一アクションのポリシーでの動作確認"""
         buffer = ReplayBuffer(buffer_size=100)
 
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         action = encode_action(100, 10)
         sample = Sample(state=state, mcts_policy={action: 1.0}, player=P1)
         buffer.add_record([sample])
@@ -607,7 +607,7 @@ class TestPlayTimeConsistency(unittest.TestCase):
         state = game.encode_state()
 
         # 形状確認
-        self.assertEqual(state.shape, (90, 5, 5))
+        self.assertEqual(state.shape, (66, 5, 5))
 
         # P2の駒位置が回転されていることを確認
         # encode_state()内でP2の場合は盤面が回転されるので、
@@ -691,7 +691,7 @@ class TestPlayTimeConsistency(unittest.TestCase):
         p2_action = encode_action(p2_from * 25 + p2_to, 0)
 
         # P1サンプル
-        state = np.zeros((90, 5, 5), dtype=np.float32)
+        state = np.zeros((66, 5, 5), dtype=np.float32)
         sample_p1 = Sample(state=state, mcts_policy={p1_action: 1.0}, player=P1)
 
         # P2サンプル

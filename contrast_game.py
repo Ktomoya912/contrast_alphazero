@@ -379,19 +379,19 @@ class ContrastGame:
         P2の場合は盤面を180度回転させ、P1視点に正規化します。
 
         Returns:
-            (90, 5, 5)の入力テンソル
+            (66, 5, 5)の入力テンソル
             - 0-7: 現在プレイヤーの駒位置 (履歴)
             - 8-15: 相手の駒位置 (履歴)
             - 16-23: 黒タイル (履歴)
             - 24-31: グレータイル (履歴)
-            - 56-63: 自分の黒タイル数 (履歴)
-            - 64-71: 自分のグレータイル数 (履歴)
-            - 72-79: 相手の黒タイル数 (履歴)
-            - 80-87: 相手のグレータイル数 (履歴)
-            - 88: 現在のプレイヤー識別子
-            - 89: 手数
+            - 32-39: 自分の黒タイル数 (履歴)
+            - 40-47: 自分のグレータイル数 (履歴)
+            - 48-55: 相手の黒タイル数 (履歴)
+            - 56-63: 相手のグレータイル数 (履歴)
+            - 64: 現在のプレイヤー識別子
+            - 65: 手数
         """
-        input_tensor = np.zeros((90, 5, 5), dtype=np.float32)
+        input_tensor = np.zeros((66, 5, 5), dtype=np.float32)
 
         # 履歴取得 (足りない分はパディング)
         hist_len = len(self.history)
@@ -424,18 +424,18 @@ class ContrastGame:
             input_tensor[24 + i] = t_grid == TILE_GRAY
 
             # Tile Counts (値は回転不要、埋めるだけ)
-            input_tensor[56 + i].fill(t_counts[my_idx, 0] / 3.0)
-            input_tensor[64 + i].fill(t_counts[my_idx, 1] / 1.0)
-            input_tensor[72 + i].fill(t_counts[opp_idx, 0] / 3.0)
-            input_tensor[80 + i].fill(t_counts[opp_idx, 1] / 1.0)
+            input_tensor[32 + i].fill(t_counts[my_idx, 0] / 3.0)
+            input_tensor[40 + i].fill(t_counts[my_idx, 1] / 1.0)
+            input_tensor[48 + i].fill(t_counts[opp_idx, 0] / 3.0)
+            input_tensor[56 + i].fill(t_counts[opp_idx, 1] / 1.0)
 
-        # 88: Color (P2の場合は回転しているので、常にP1視点として扱えるため常に1でも良いが、
+        # 64: Color (P2の場合は回転しているので、常にP1視点として扱えるため常に1でも良いが、
         # AlphaZeroの慣例的には手番プレーヤーIDを入れることもある。
         # ここでは元の実装通り「自分=1」とする)
-        input_tensor[88].fill(1.0)
+        input_tensor[64].fill(1.0)
 
-        # 89: Move Count
-        input_tensor[89].fill(self.move_count / game_config.MAX_STEPS_PER_GAME)
+        # 65: Move Count
+        input_tensor[65].fill(self.move_count / game_config.MAX_STEPS_PER_GAME)
 
         return input_tensor
 

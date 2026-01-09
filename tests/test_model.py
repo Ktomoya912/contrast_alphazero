@@ -120,7 +120,7 @@ class TestContrastDualPolicyNetForward(unittest.TestCase):
         model.eval()
 
         batch_size = 4
-        x = torch.randn(batch_size, 90, 5, 5)
+        x = torch.randn(batch_size, 66, 5, 5)
 
         move_logits, tile_logits, value = model(x)
 
@@ -134,7 +134,7 @@ class TestContrastDualPolicyNetForward(unittest.TestCase):
         model = ContrastDualPolicyNet()
         model.eval()
 
-        x = torch.randn(2, 90, 5, 5)
+        x = torch.randn(2, 66, 5, 5)
         _, _, value = model(x)
 
         # tanhを使っているので[-1, 1]の範囲
@@ -146,7 +146,7 @@ class TestContrastDualPolicyNetForward(unittest.TestCase):
         model = ContrastDualPolicyNet()
         model.eval()
 
-        x = torch.randn(1, 90, 5, 5)
+        x = torch.randn(1, 66, 5, 5)
         move_logits, tile_logits, value = model(x)
 
         self.assertEqual(move_logits.shape, (1, 625))
@@ -159,7 +159,7 @@ class TestContrastDualPolicyNetForward(unittest.TestCase):
         model.eval()
 
         batch_size = 128
-        x = torch.randn(batch_size, 90, 5, 5)
+        x = torch.randn(batch_size, 66, 5, 5)
 
         move_logits, tile_logits, value = model(x)
 
@@ -172,7 +172,7 @@ class TestContrastDualPolicyNetForward(unittest.TestCase):
         model = ContrastDualPolicyNet()
         model.eval()
 
-        x = torch.randn(2, 90, 5, 5)
+        x = torch.randn(2, 66, 5, 5)
 
         with torch.no_grad():
             m1, t1, v1 = model(x)
@@ -315,7 +315,7 @@ class TestModelSaveLoad(unittest.TestCase):
         model1.eval()
 
         # ダミー入力で出力を取得
-        x = torch.randn(2, 90, 5, 5)
+        x = torch.randn(2, 66, 5, 5)
         with torch.no_grad():
             m1, t1, v1 = model1(x)
 
@@ -370,7 +370,7 @@ class TestModelDeviceCompatibility(unittest.TestCase):
         model = ContrastDualPolicyNet().to(device)
         model.eval()
 
-        x = torch.randn(2, 90, 5, 5).to(device)
+        x = torch.randn(2, 66, 5, 5).to(device)
         m, t, v = model(x)
 
         self.assertEqual(m.device.type, "cpu")
@@ -384,7 +384,7 @@ class TestModelDeviceCompatibility(unittest.TestCase):
         model = ContrastDualPolicyNet().to(device)
         model.eval()
 
-        x = torch.randn(2, 90, 5, 5).to(device)
+        x = torch.randn(2, 66, 5, 5).to(device)
         m, t, v = model(x)
 
         self.assertEqual(m.device.type, "cuda")
@@ -414,7 +414,7 @@ class TestModelEdgeCases(unittest.TestCase):
         model = ContrastDualPolicyNet()
         model.eval()
 
-        x = torch.zeros(2, 90, 5, 5)
+        x = torch.zeros(2, 66, 5, 5)
         m, t, v = model(x)
 
         # 出力が生成される
@@ -428,7 +428,7 @@ class TestModelEdgeCases(unittest.TestCase):
         model.eval()
 
         # 非常に大きい値
-        x_large = torch.ones(2, 90, 5, 5) * 100
+        x_large = torch.ones(2, 66, 5, 5) * 100
         m, t, v = model(x_large)
 
         self.assertFalse(torch.isnan(m).any())
@@ -472,7 +472,7 @@ class TestModelTraining(unittest.TestCase):
         initial_params = [p.clone() for p in model.parameters()]
 
         # ダミーデータで学習
-        x = torch.randn(2, 90, 5, 5)
+        x = torch.randn(2, 66, 5, 5)
         move_targets = torch.randint(0, 625, (2,))
         tile_targets = torch.randint(0, 51, (2,))
         value_targets = torch.randn(2, 1)

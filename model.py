@@ -199,7 +199,7 @@ if __name__ == "__main__":
     model = ContrastDualPolicyNet().to(device)
 
     # ダミー入力 (Batch=4)
-    dummy_input = torch.randn(4, 90, 5, 5).to(device)
+    dummy_input = torch.randn(4, 66, 5, 5).to(device)
 
     m_out, t_out, v_out = model(dummy_input)
 
