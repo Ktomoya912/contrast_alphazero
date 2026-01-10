@@ -43,9 +43,12 @@ class WarmupScheduler:
         """
         Args:
             optimizer: PyTorchのオプティマイザ
-            warmup_steps: ウォームアップするステップ数
+            warmup_steps: ウォームアップするステップ数（1以上）
             base_lr: 最終的に到達する学習率
         """
+        if warmup_steps <= 0:
+            raise ValueError(f"warmup_steps must be > 0, got {warmup_steps}")
+        
         self.optimizer = optimizer
         self.warmup_steps = warmup_steps
         self.base_lr = base_lr

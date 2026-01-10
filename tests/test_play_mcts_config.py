@@ -87,9 +87,9 @@ class TestWarmupScheduler:
         optimizer = optim.Adam(model.parameters(), lr=0.2)
         scheduler = WarmupScheduler(optimizer, warmup_steps=100, base_lr=0.2)
 
-        # Initial LR should be very low
+        # Initial LR is the optimizer's initial LR before any warmup steps
         initial_lr = scheduler.get_lr()
-        assert initial_lr == 0.2  # Not warmed up yet
+        assert initial_lr == 0.2  # Optimizer's initial LR
 
         # After 50 steps, should be at 50% of base LR
         for _ in range(50):
@@ -125,6 +125,18 @@ class TestWarmupScheduler:
         assert training_config.USE_WARMUP == False  # Default off for backward compatibility
         assert training_config.WARMUP_STEPS == 1000
         assert training_config.MAX_GRAD_NORM == 10.0
+
+    def test_warmup_scheduler_validates_steps(self):
+        """Test that warmup scheduler validates warmup_steps > 0"""
+        model = ContrastDualPolicyNet()
+        optimizer = optim.Adam(model.parameters(), lr=0.2)
+        
+        # Should raise ValueError for warmup_steps <= 0
+        with pytest.raises(ValueError, match="warmup_steps must be > 0"):
+            WarmupScheduler(optimizer, warmup_steps=0, base_lr=0.2)
+        
+        with pytest.raises(ValueError, match="warmup_steps must be > 0"):
+            WarmupScheduler(optimizer, warmup_steps=-1, base_lr=0.2)
 
 
 class TestNetworkArchitectureChanges:
