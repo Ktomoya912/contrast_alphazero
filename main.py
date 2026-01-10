@@ -68,7 +68,6 @@ class WarmupScheduler:
         return self.optimizer.param_groups[0]['lr']
 
 
-
 @dataclass
 class Sample:
     state: np.ndarray  # (66, 5, 5)

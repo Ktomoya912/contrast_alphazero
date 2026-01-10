@@ -122,7 +122,7 @@ class TestWarmupScheduler:
         assert hasattr(training_config, 'MAX_GRAD_NORM')
 
         # Check default values
-        assert training_config.USE_WARMUP == False  # Default off for backward compatibility
+        assert training_config.USE_WARMUP is False  # Default off for backward compatibility
         assert training_config.WARMUP_STEPS == 1000
         assert training_config.MAX_GRAD_NORM == 10.0
 
