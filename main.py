@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import ray
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -29,6 +30,42 @@ from model import ContrastDualPolicyNet, loss_function
 logger = get_logger(__name__)
 
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+class WarmupScheduler:
+    """学習率ウォームアップスケジューラ
+    
+    高い学習率（例: 0.2）で学習を開始する場合、初期段階で勾配が不安定になることがあります。
+    このスケジューラは、最初の数ステップで学習率を徐々に上げることで、安定した学習を実現します。
+    """
+    
+    def __init__(self, optimizer, warmup_steps: int, base_lr: float):
+        """
+        Args:
+            optimizer: PyTorchのオプティマイザ
+            warmup_steps: ウォームアップするステップ数（1以上）
+            base_lr: 最終的に到達する学習率
+        """
+        if warmup_steps <= 0:
+            raise ValueError(f"warmup_steps must be > 0, got {warmup_steps}")
+        
+        self.optimizer = optimizer
+        self.warmup_steps = warmup_steps
+        self.base_lr = base_lr
+        self.current_step = 0
+    
+    def step(self):
+        """ステップを進めて学習率を更新"""
+        self.current_step += 1
+        if self.current_step <= self.warmup_steps:
+            # 線形にウォームアップ
+            lr = self.base_lr * (self.current_step / self.warmup_steps)
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = lr
+    
+    def get_lr(self):
+        """現在の学習率を取得"""
+        return self.optimizer.param_groups[0]['lr']
 
 
 @dataclass
@@ -232,6 +269,19 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
         lr=training_config.LEARNING_RATE,
         weight_decay=training_config.WEIGHT_DECAY,
     )
+    
+    # 学習率ウォームアップスケジューラ（設定で有効な場合）
+    warmup_scheduler = None
+    if training_config.USE_WARMUP:
+        warmup_scheduler = WarmupScheduler(
+            optimizer, 
+            training_config.WARMUP_STEPS, 
+            training_config.LEARNING_RATE
+        )
+        logger.info(
+            f"Learning rate warmup enabled: {training_config.WARMUP_STEPS} steps to {training_config.LEARNING_RATE}"
+        )
+    
     # 学習率スケジューラ (config.pyから設定を取得)
     scheduler = optim.lr_scheduler.StepLR(
         optimizer,
@@ -293,8 +343,22 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
             )
             # バックプロパゲーション
             loss.backward()
+            
+            # 勾配クリッピング（学習の安定性向上）
+            grad_norm = nn.utils.clip_grad_norm_(
+                network.parameters(), 
+                training_config.MAX_GRAD_NORM
+            )
+            
             optimizer.step()
-            scheduler.step()
+            
+            # ウォームアップスケジューラの更新（有効な場合）
+            if warmup_scheduler is not None and total_steps < training_config.WARMUP_STEPS:
+                warmup_scheduler.step()
+            else:
+                # 通常のスケジューラ
+                scheduler.step()
+                
             # 3. ウエイトの更新
             # 一定ステップごとにRay上のウエイトを更新 (config.pyから間隔を取得)
             if total_steps % training_config.LOG_INTERVAL == 0:
@@ -302,12 +366,17 @@ def main(n_parallel_selfplay=2, num_mcts_simulations=50):
                 writer.add_scalar("Loss/Value", v_loss, total_steps)
                 writer.add_scalar("Loss/Move", m_loss, total_steps)
                 writer.add_scalar("Loss/Tile", t_loss, total_steps)
-                writer.add_scalar(
-                    "Training/LR", scheduler.get_last_lr()[0], total_steps
-                )
+                writer.add_scalar("Training/GradNorm", grad_norm.item(), total_steps)
+                
+                # 学習率の取得（ウォームアップ中かどうかで異なる）
+                if warmup_scheduler is not None and total_steps < training_config.WARMUP_STEPS:
+                    current_lr = warmup_scheduler.get_lr()
+                else:
+                    current_lr = scheduler.get_last_lr()[0]
+                    
+                writer.add_scalar("Training/LR", current_lr, total_steps)
                 current_weights_ref = ray.put(network.to("cpu").state_dict())
                 network.to(device)
-                current_lr = scheduler.get_last_lr()[0]
 
                 # 詳細なメトリクスログ
                 log_msg = (

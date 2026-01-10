@@ -1,6 +1,6 @@
 import argparse
 
-from config import mcts_config, path_config
+from config import mcts_config, path_config, play_mcts_config
 from contrast_game import (
     P1,
     P2,
@@ -29,13 +29,13 @@ class HumanVsAI:
         """
         Args:
             model_path: 学習済みモデルのパス
-            num_simulations: MCTSのシミュレーション回数 (Noneの場合はconfig.pyから取得)
+            num_simulations: MCTSのシミュレーション回数 (Noneの場合はplay_mcts_configから取得)
             player1_type: プレイヤー1のタイプ ("human", "ai", "random", "rule")
             player2_type: プレイヤー2のタイプ ("human", "ai", "random", "rule")
         """
-        # config.pyからデフォルト値を取得
+        # config.pyからデフォルト値を取得（プレイ時の設定を使用）
         if num_simulations is None:
-            num_simulations = mcts_config.NUM_SIMULATIONS
+            num_simulations = play_mcts_config.NUM_SIMULATIONS
 
         self.player1_type = player1_type
         self.player2_type = player2_type
@@ -219,8 +219,8 @@ def main():
     parser.add_argument(
         "--simulations",
         type=int,
-        default=mcts_config.NUM_SIMULATIONS,
-        help=f"MCTSのシミュレーション回数 (デフォルト: {mcts_config.NUM_SIMULATIONS})",
+        default=play_mcts_config.NUM_SIMULATIONS,
+        help=f"MCTSのシミュレーション回数 (デフォルト: {play_mcts_config.NUM_SIMULATIONS})",
     )
     parser.add_argument(
         "--player1",
