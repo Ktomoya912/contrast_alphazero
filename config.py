@@ -31,7 +31,7 @@ class GameConfig:
 # ===== MCTS設定 =====
 @dataclass
 class MCTSConfig:
-    """MCTSのハイパーパラメータ"""
+    """MCTSのハイパーパラメータ（学習時）"""
 
     NUM_SIMULATIONS: int = 50  # デフォルトのシミュレーション回数
     DIRICHLET_ALPHA: float = 0.3  # ディリクレノイズのパラメータ
@@ -42,13 +42,35 @@ class MCTSConfig:
     TEMPERATURE_THRESHOLD: int = 30  # この手数まではランダム性を残す
 
 
+@dataclass
+class PlayMCTSConfig:
+    """MCTSのハイパーパラメータ（プレイ時）
+    
+    学習時とは異なるパラメータを使用することで、より強いプレイを実現します。
+    - より多くのシミュレーション回数で精度を上げる
+    - より高いC_PUCTで探索を促進
+    """
+
+    NUM_SIMULATIONS: int = 200  # プレイ時はより多くのシミュレーション
+    C_PUCT: float = 1.5  # プレイ時はより探索を重視
+    DIRICHLET_ALPHA: float = 0.3  # ディリクレノイズのパラメータ（学習時と同じ）
+    DIRICHLET_EPSILON: float = 0.0  # プレイ時はノイズを加えない（決定的な選択）
+
+
 # ===== ニューラルネットワーク設定 =====
 @dataclass
 class NetworkConfig:
-    """ニューラルネットワークのアーキテクチャ設定"""
+    """ニューラルネットワークのアーキテクチャ設定
+    
+    コントラストは5x5の盤面で、囲碁(19x19)よりも小さいゲームです。
+    AlphaGo/AlphaZeroの設定（40ブロック、256フィルタ）は過剰なため、
+    ゲームの複雑さに合わせて調整します：
+    - 小さい盤面 → 少ないResidualブロック
+    - 少ない駒数 → 少ないフィルタ数
+    """
 
-    NUM_RES_BLOCKS: int = 8  # Residualブロックの数
-    NUM_FILTERS: int = 64  # 畳み込み層のフィルタ数
+    NUM_RES_BLOCKS: int = 6  # Residualブロックの数（8→6に削減）
+    NUM_FILTERS: int = 64  # 畳み込み層のフィルタ数（維持）
 
     # ヘッドの設定
     MOVE_HEAD_FILTERS: int = 32
@@ -77,6 +99,11 @@ class TrainingConfig:
     WEIGHT_DECAY: float = 1e-4
     LR_STEP_SIZE: int = 50_000  # 学習率を減衰させるステップ間隔
     LR_GAMMA: float = 0.5  # 学習率の減衰率
+    
+    # 学習率0.2対応のための設定
+    USE_WARMUP: bool = False  # 学習率ウォームアップを使用するか
+    WARMUP_STEPS: int = 1000  # ウォームアップステップ数
+    MAX_GRAD_NORM: float = 10.0  # 勾配クリッピングの閾値
 
     # 学習ステップ
     MAX_STEPS: int = 150  # 1ゲームあたりの最大手数（引き分け防止）
@@ -122,6 +149,7 @@ class PathConfig:
 # グローバル設定インスタンス（簡単にアクセスできるように）
 game_config = GameConfig()
 mcts_config = MCTSConfig()
+play_mcts_config = PlayMCTSConfig()
 network_config = NetworkConfig()
 training_config = TrainingConfig()
 evaluation_config = EvaluationConfig()
